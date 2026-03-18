@@ -60,9 +60,9 @@ const STRENGTHS = [
 
 // Image placeholders mapped to upload names
 const IMG_URLS = {
-  SCRAP1: "/mnt/user-data/uploads/SCRAP1.jpeg",
-  SCRAP2: "/mnt/user-data/uploads/SCRAP2.jpeg",
-  SCRAP3: "/mnt/user-data/uploads/SCRAP3.jpeg",
+  SCRAP1: "/SCRAP1.jpeg",
+  SCRAP2: "/SCRAP2.jpeg",
+  SCRAP3: "/SCRAP3.jpeg",
 };
 
 export default function SREnterprises() {
