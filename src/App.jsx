@@ -84,7 +84,7 @@ export default function SREnterprises() {
   const [scrolled, setScrolled] = useState(false);
   const [visibleSections, setVisibleSections] = useState({});
   const [activeProductFilter, setActiveProductFilter] = useState("All");
-  const [hoveredProduct, setHoveredProduct] = useState(null);
+ 
   const [activeSector, setActiveSector] = useState("manufacturing");
   const sectionRefs = useRef({});
 
@@ -396,8 +396,8 @@ export default function SREnterprises() {
               <div
                 key={p.id}
                 className={`product-card fade-up d${Math.min((i % 4) + 1, 4)}${isVisible("products") ? " visible" : ""}`}
-                onMouseEnter={() => setHoveredProduct(p.id)}
-                onMouseLeave={() => setHoveredProduct(null)}
+        
+             
               >
                 <div style={{ position: "absolute", top: 10, left: 10, zIndex: 2 }}>
                   <span className="product-cat-badge" style={{ background: p.category === "Ferrous" ? "#c0392b" : p.category === "Non-Ferrous" ? "#0a1a3a" : "#555", color: "#fff" }}>{p.category}</span>
