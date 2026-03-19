@@ -1,664 +1,929 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import * as XLSX from "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  PieChart, Pie, Cell, LineChart, Line, ResponsiveContainer
+} from "recharts";
 
-const NAV_LINKS = ["Home", "About", "Services", "Products", "Clients", "Strengths", "Contact"];
+/* ══════════════════════════════════════════════════════════════
+   THEME — Industrial Raw Steel
+══════════════════════════════════════════════════════════════ */
+const C = {
+  rust:    "#c0392b",
+  rustL:   "#e74c3c",
+  rustD:   "#96281b",
+  steel:   "#1a1a2e",
+  steelM:  "#16213e",
+  steelL:  "#0f3460",
+  iron:    "#2c2c3e",
+  ironL:   "#3a3a52",
+  chrome:  "#e8e8f0",
+  chromD:  "#b0b0c8",
+  zinc:    "#7f8c8d",
+  zincL:   "#95a5a6",
+  amber:   "#f39c12",
+  lime:    "#27ae60",
+  teal:    "#1abc9c",
+  gold:    "#f1c40f",
+  white:   "#f0f0f8",
+  dimText: "#8888aa",
+};
+const PAL = ["#c0392b","#e67e22","#f1c40f","#1abc9c","#3498db","#9b59b6","#27ae60","#e74c3c","#d35400","#16a085","#2980b9","#8e44ad"];
 
-const SERVICES = [
-  { icon: "⚙️", title: "MS Scrap Procurement", desc: "Structured buying and collection for ongoing industrial requirements." },
-  { icon: "🔩", title: "Ferrous & Non-Ferrous Scrap Handling", desc: "Segregation, loading, and movement with rigorous site discipline." },
-  { icon: "🏗️", title: "Machinery Scrap Purchasing", desc: "Assessment and purchase of machinery and asset scrap." },
-  { icon: "🏭", title: "Industrial Scrap Clearance", desc: "Timely removal from plants, yards, and operational areas." },
-  { icon: "🔧", title: "PEMB Construction Scrap Handling", desc: "Scrap segregation and removal for steel building works." },
-  { icon: "🚇", title: "Flat & Metro Construction Scrap Handling", desc: "Jobsite scrap management aligned to project timelines." },
-  { icon: "🏢", title: "Warehouse Scrap Management", desc: "Ongoing scrap control, storage handling, and dispatch." },
-];
+/* ══════════════════════════════════════════════════════════════
+   UTILS
+══════════════════════════════════════════════════════════════ */
+const fi = v => "₹" + Math.round(v).toLocaleString("en-IN");
+const fs = v => {
+  if (v >= 1e7) return "₹" + (v / 1e7).toFixed(2) + " Cr";
+  if (v >= 1e5) return "₹" + (v / 1e5).toFixed(1) + " L";
+  return "₹" + Math.round(v).toLocaleString("en-IN");
+};
+const getFY = dt => {
+  if (!dt || isNaN(dt)) return "Unknown";
+  const m = dt.getMonth() + 1, y = dt.getFullYear();
+  return m >= 4 ? `FY ${y}-${String(y + 1).slice(2)}` : `FY ${y - 1}-${String(y).slice(2)}`;
+};
+const cleanName = s => String(s || "").replace(/\s*\(\d+\)\s*$/, "").trim();
+const parseDate = raw => {
+  if (!raw) return null;
+  if (raw instanceof Date) return raw;
+  if (typeof raw === "number") return new Date((raw - 25569) * 86400 * 1000);
+  const s = String(raw);
+  const parts = s.split(/[\/\-]/);
+  if (parts.length === 3) {
+    const [a, b, c] = parts.map(Number);
+    if (a <= 31 && b <= 12) return new Date(c, b - 1, a);
+    return new Date(a, b - 1, c);
+  }
+  return new Date(s);
+};
 
-const PRODUCTS = [
-  { id: 1, title: "MS Punching Scraps", img: "/SCRAP1.jpeg", category: "Ferrous", color: "#c0392b", desc: "High-grade mild steel punching offcuts from press and stamping operations." },
-  { id: 2, title: "MS Boring & Turning Scraps", img: "/SCRAP3.jpeg", category: "Ferrous", color: "#c0392b", desc: "Precision turning and boring chips from CNC and lathe machining." },
-  { id: 3, title: "Cast Iron Scraps", img: "/SCRAP2.jpeg", category: "Ferrous", color: "#c0392b", desc: "Cast iron components, housings, and fragments from heavy industry." },
-  { id: 4, title: "MS Melting Scraps", img: "/SCRAP1.jpeg", category: "Ferrous", color: "#c0392b", desc: "Bulk mild steel scrap suitable for melting and re-rolling applications." },
-  { id: 5, title: "Brass Scraps", img: "/SCRAP3.jpeg", category: "Non-Ferrous", color: "#d4a017", desc: "Yellow brass, red brass, and mixed brass scrap from industrial sources." },
-  { id: 6, title: "Stainless Steel Scraps", img: "/SCRAP2.jpeg", category: "Non-Ferrous", color: "#7f8c8d", desc: "304, 316, and mixed grade SS scrap — sheets, rods, and turnings." },
-  { id: 7, title: "Aluminium Scraps", img: "/SCRAP3.jpeg", category: "Non-Ferrous", color: "#95a5a6", desc: "Aluminium sheets, extrusions, die-cast parts, and cable offcuts." },
-  { id: 8, title: "Copper Scraps", img: "/SCRAP2.jpeg", category: "Non-Ferrous", color: "#b7440a", desc: "Bare bright copper, insulated wire, and copper pipe scrap." },
-  { id: 9, title: "Wooden Pallets Scraps", img: "/SCRAP1.jpeg", category: "Other", color: "#7d5a3c", desc: "Used and broken industrial wooden pallets for clearance and recycling." },
-  { id: 10, title: "Building Demolition", img: "/SCRAP2.jpeg", category: "Other", color: "#555", desc: "Full demolition support for decommissioned structures, sheds, and buildings." },
-  { id: 11, title: "Rubber & Plastic Scraps", img: "/SCRAP3.jpeg", category: "Other", color: "#2c3e50", desc: "Industrial rubber, conveyor belts, plastic mouldings and packaging waste." },
-  { id: 12, title: "Shed Dismantling", img: "/SCRAP1.jpeg", category: "Other", color: "#0a1a3a", desc: "Complete shed and structural dismantling with scrap clearance and handover." },
-];
+/* ══════════════════════════════════════════════════════════════
+   PARSE & AGGREGATE
+══════════════════════════════════════════════════════════════ */
+function parseWorkbook(wb) {
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+  const hdrRow = raw.findIndex(r => String(r[0]).toLowerCase().includes("sr") || String(r[2]).toLowerCase().includes("branch"));
+  const rows = raw.slice(hdrRow + 1);
+  const data = [];
+  rows.forEach(r => {
+    const sn = Number(r[0]);
+    if (!sn || isNaN(sn)) return;
+    const dt = parseDate(r[7]);
+    data.push({
+      srNo: sn, region: String(r[1] || ""), branch: cleanName(r[2]), party: cleanName(r[3]),
+      invoiceNo: String(r[4] || ""), invoiceDate: dt, invoiceType: String(r[8] || ""),
+      billAmt: Number(r[9]) || 0, paidAmt: Number(r[10]) || 0, outstanding: Number(r[11]) || 0,
+      reason: String(r[12] || ""), fy: getFY(dt),
+    });
+  });
+  return data;
+}
 
-const PRODUCT_FILTERS = ["All", "Ferrous", "Non-Ferrous", "Other"];
+function aggregate(data) {
+  const byBranch = {}, byParty = {}, byFY = {}, byType = {}, byMonth = {};
+  data.forEach(r => {
+    if (!byBranch[r.branch]) byBranch[r.branch] = { o: 0, bill: 0, n: 0 };
+    byBranch[r.branch].o += r.outstanding; byBranch[r.branch].bill += r.billAmt; byBranch[r.branch].n++;
+    if (!byParty[r.party]) byParty[r.party] = { o: 0, n: 0, byFY: {} };
+    byParty[r.party].o += r.outstanding; byParty[r.party].n++;
+    byParty[r.party].byFY[r.fy] = (byParty[r.party].byFY[r.fy] || 0) + r.outstanding;
+    if (!byFY[r.fy]) byFY[r.fy] = { o: 0, bill: 0, n: 0 };
+    byFY[r.fy].o += r.outstanding; byFY[r.fy].bill += r.billAmt; byFY[r.fy].n++;
+    if (!byType[r.invoiceType]) byType[r.invoiceType] = 0;
+    byType[r.invoiceType] += r.outstanding;
+    if (r.invoiceDate) {
+      const key = r.invoiceDate.toISOString().slice(0, 7);
+      if (!byMonth[key]) byMonth[key] = 0;
+      byMonth[key] += r.outstanding;
+    }
+  });
+  const branches = Object.entries(byBranch).map(([b, v]) => ({ b, ...v })).sort((a, b) => b.o - a.o);
+  const parties  = Object.entries(byParty).map(([p, v]) => ({ p, ...v })).sort((a, b) => b.o - a.o);
+  const fys      = Object.entries(byFY).map(([fy, v]) => ({ fy, ...v })).sort((a, b) => a.fy.localeCompare(b.fy));
+  const types    = Object.entries(byType).map(([t, o]) => ({ t, o })).sort((a, b) => b.o - a.o);
+  const monthly  = Object.entries(byMonth).sort((a, b) => a[0].localeCompare(b[0])).map(([k, v]) => ({
+    m: new Date(k + "-01").toLocaleString("en-IN", { month: "short", year: "2-digit" }), v
+  }));
+  const total = data.reduce((s, r) => s + r.outstanding, 0);
+  const top7p = parties.slice(0, 7);
+  const othersP = parties.slice(7).reduce((s, r) => s + r.o, 0);
+  const partyPie = [...top7p.map((r, i) => ({ name: r.p.length > 22 ? r.p.slice(0, 22) + "…" : r.p, value: r.o, color: PAL[i] })), { name: "Others", value: othersP, color: "#4a4a5e" }];
+  const top7b = branches.slice(0, 7);
+  const othersB = branches.slice(7).reduce((s, r) => s + r.o, 0);
+  const branchPie = [...top7b.map((r, i) => ({ name: r.b.replace("CW ", "").replace("CWC ", ""), value: r.o, color: PAL[i] })), { name: "Others", value: othersB, color: "#4a4a5e" }];
+  return { branches, parties, fys, types, monthly, total, partyPie, branchPie };
+}
 
-const CLIENT_SECTORS = [
-  {
-    key: "sez",
-    label: "SEZ Zone",
-    icon: "🏭",
-    color: "#c0392b",
-    clients: ["ATC Tires", "Nokia", "Laird Technology", "Wintek Technology"],
-    desc: "Special Economic Zone companies requiring certified and documented scrap clearance.",
-  },
-  {
-    key: "manufacturing",
-    label: "Manufacturing",
-    icon: "⚙️",
-    color: "#0a1a3a",
-    clients: [
-      "Unipres India Pvt Ltd", "Kanaech India Pvt Ltd", "Larsen & Toubro Limited",
-      "Hyundai Motors", "Schwing Stetter India P Ltd", "M.M. Forgings",
-      "Ucal Fuel Systems", "Texcel Engineering", "Crown Fabrication (ECCI Ltd)",
-    ],
-    desc: "Large-scale manufacturing plants with ongoing scrap generation and bulk procurement needs.",
-  },
-  {
-    key: "construction",
-    label: "Construction",
-    icon: "🏗️",
-    color: "#2c3e50",
-    clients: [
-      "Larsen & Toubro Ltd (ECC Division)", "East Coast Construction Industries Ltd",
-      "ETA Constructions", "Hariharan Foundation Ltd",
-    ],
-    desc: "Infrastructure and construction companies requiring site scrap management and clearance.",
-  },
-  {
-    key: "other",
-    label: "Infrastructure & Others",
-    icon: "🚇",
-    color: "#7d5a3c",
-    clients: ["Priya Engineering", "KNR Construction", "Kochi Metro Rail", "Bharat Petroleum", "Central Warehousing Corporation"],
-    desc: "Metro, petroleum, and warehousing clients requiring specialised industrial scrap services.",
-  },
-];
-
-const STRENGTHS = [
-  { stat: "20+", label: "Years Experience", sub: "Scrap & industrial services" },
-  { stat: "7", label: "Service Lines", sub: "End-to-end coverage" },
-  { stat: "2–3", label: "On-site Supervisors", sub: "Every project, every site" },
-  { stat: "100%", label: "Transparent Ops", sub: "Accurate weighment always" },
-];
-
-export default function SREnterprises() {
-  const [activeNav, setActiveNav] = useState("Home");
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
-  const [visibleSections, setVisibleSections] = useState({});
-  const [activeProductFilter, setActiveProductFilter] = useState("All");
- 
-  const [activeSector, setActiveSector] = useState("manufacturing");
-  const sectionRefs = useRef({});
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 40);
-    window.addEventListener("scroll", onScroll);
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((e) => {
-          if (e.isIntersecting) {
-            setVisibleSections((prev) => ({ ...prev, [e.target.id]: true }));
-            setActiveNav(e.target.dataset.nav || activeNav);
-          }
-        });
-      },
-      { threshold: 0.1 }
-    );
-    Object.values(sectionRefs.current).forEach((el) => el && observer.observe(el));
-    return () => observer.disconnect();
-  }, [activeNav]);
-
-  const registerRef = (id, nav) => (el) => {
-    if (el) { el.dataset.nav = nav; sectionRefs.current[id] = el; }
-  };
-
-  const scrollTo = (id) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
-    setMenuOpen(false);
-  };
-
-  const isVisible = (id) => visibleSections[id];
-  const filteredProducts = activeProductFilter === "All" ? PRODUCTS : PRODUCTS.filter(p => p.category === activeProductFilter);
-  const activeSectorData = CLIENT_SECTORS.find(s => s.key === activeSector);
-
+/* ══════════════════════════════════════════════════════════════
+   SHARED COMPONENTS
+══════════════════════════════════════════════════════════════ */
+const TT = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
   return (
-    <div style={{ fontFamily: "'Georgia', serif", background: "#fff", color: "#0a1a3a", margin: 0, padding: 0 }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Sans+3:wght@300;400;600;700&display=swap');
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        html { scroll-behavior: smooth; }
-        .sr-font-display { font-family: 'Playfair Display', Georgia, serif; }
-        .sr-font-body { font-family: 'Source Sans 3', 'Segoe UI', sans-serif; }
-
-        .fade-up { opacity: 0; transform: translateY(32px); transition: opacity 0.7s ease, transform 0.7s ease; }
-        .fade-up.visible { opacity: 1; transform: translateY(0); }
-        .fade-up.d1 { transition-delay: 0.1s; } .fade-up.d2 { transition-delay: 0.2s; }
-        .fade-up.d3 { transition-delay: 0.3s; } .fade-up.d4 { transition-delay: 0.4s; }
-        .fade-up.d5 { transition-delay: 0.5s; } .fade-up.d6 { transition-delay: 0.6s; }
-        .fade-up.d7 { transition-delay: 0.7s; }
-
-        .sr-nav-link { cursor: pointer; font-family: 'Source Sans 3', sans-serif; font-weight: 600; font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; color: #0a1a3a; padding: 6px 0; border-bottom: 2px solid transparent; transition: color 0.2s, border-color 0.2s; white-space: nowrap; }
-        .sr-nav-link:hover, .sr-nav-link.active { color: #c0392b; border-bottom-color: #c0392b; }
-
-        .sr-btn-primary { display: inline-block; background: #c0392b; color: #fff; font-family: 'Source Sans 3', sans-serif; font-weight: 700; font-size: 0.9rem; letter-spacing: 0.1em; text-transform: uppercase; padding: 14px 36px; border: none; cursor: pointer; transition: background 0.2s, transform 0.15s; text-decoration: none; }
-        .sr-btn-primary:hover { background: #a93226; transform: translateY(-2px); }
-
-        .sr-btn-outline { display: inline-block; background: transparent; color: #fff; font-family: 'Source Sans 3', sans-serif; font-weight: 700; font-size: 0.9rem; letter-spacing: 0.1em; text-transform: uppercase; padding: 13px 35px; border: 2px solid rgba(255,255,255,0.6); cursor: pointer; transition: background 0.2s, border-color 0.2s, transform 0.15s; }
-        .sr-btn-outline:hover { background: rgba(255,255,255,0.1); border-color: #fff; transform: translateY(-2px); }
-
-        .service-card { border: 1px solid #e8ecf0; padding: 28px 24px; transition: border-color 0.25s, box-shadow 0.25s, transform 0.25s; background: #fff; }
-        .service-card:hover { border-color: #c0392b; box-shadow: 0 8px 32px rgba(192,57,43,0.1); transform: translateY(-4px); }
-
-        .product-card { position: relative; overflow: hidden; cursor: pointer; border: 2px solid #e8ecf0; transition: border-color 0.3s, transform 0.3s, box-shadow 0.3s; background: #fff; border-radius: 4px; }
-        .product-card:hover { border-color: #c0392b; transform: translateY(-6px); box-shadow: 0 16px 48px rgba(192,57,43,0.15); }
-        .product-img-box { overflow: hidden; height: 180px; }
-        .product-card-img { width: 100%; height: 180px; object-fit: cover; transition: transform 0.4s; display: block; }
-        .product-card:hover .product-card-img { transform: scale(1.08); }
-        .product-card-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(to top, rgba(10,26,58,0.92) 0%, rgba(10,26,58,0.3) 55%, transparent 100%); opacity: 0; transition: opacity 0.3s; display: flex; align-items: flex-end; padding: 16px; pointer-events: none; }
-        .product-card:hover .product-card-overlay { opacity: 1; }
-        .product-cat-badge { display: inline-block; font-family: 'Source Sans 3', sans-serif; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; padding: 3px 10px; border-radius: 2px; }
-
-        .filter-pill { cursor: pointer; font-family: 'Source Sans 3', sans-serif; font-size: 0.8rem; font-weight: 700; padding: 8px 22px; border: 2px solid #e8ecf0; text-transform: uppercase; letter-spacing: 0.08em; color: #0a1a3a; transition: all 0.2s; background: #fff; }
-        .filter-pill:hover { border-color: #c0392b; color: #c0392b; }
-        .filter-pill.active-pill { background: #c0392b; border-color: #c0392b; color: #fff; }
-
-        .sector-tab { cursor: pointer; padding: 18px 24px; border-bottom: 3px solid transparent; transition: all 0.25s; font-family: 'Source Sans 3', sans-serif; font-weight: 700; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; color: #888; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
-        .sector-tab:hover { color: #0a1a3a; }
-        .sector-tab.active-sector { border-bottom-color: #c0392b; color: #c0392b; background: rgba(192,57,43,0.04); }
-
-        .client-name-row { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid #f0f0f0; transition: padding-left 0.2s; }
-        .client-name-row:last-child { border-bottom: none; }
-        .client-name-row:hover { padding-left: 6px; }
-
-        .divider-red { width: 48px; height: 3px; background: #c0392b; margin: 16px 0 24px; }
-
-        .about-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center; }
-        .about-inner-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        .contact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: start; }
-        .strengths-ops-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-        .hero-cta-row { display: flex; gap: 16px; flex-wrap: wrap; }
-        .hero-badges { display: flex; gap: 32px; margin-top: 56px; flex-wrap: wrap; }
-        .products-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
-        .sector-tabs-row { display: flex; border-bottom: 2px solid #e8ecf0; overflow-x: auto; scrollbar-width: none; }
-        .sector-tabs-row::-webkit-scrollbar { display: none; }
-        .sector-content-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: start; padding: 36px 32px; }
-
-        @media (max-width: 1100px) { .products-grid { grid-template-columns: repeat(3, 1fr); } }
-        @media (max-width: 900px) {
-          .about-grid { grid-template-columns: 1fr; gap: 40px; }
-          .about-inner-grid { grid-template-columns: 1fr; }
-          .contact-grid { grid-template-columns: 1fr; gap: 40px; }
-          .strengths-ops-grid { grid-template-columns: 1fr; }
-          .products-grid { grid-template-columns: repeat(2, 1fr); }
-          .sector-content-grid { grid-template-columns: 1fr; gap: 24px; padding: 24px 20px; }
-        }
-        @media (max-width: 768px) {
-          .desktop-nav { display: none !important; }
-          .desktop-cta { display: none !important; }
-          .mobile-menu-btn { display: flex !important; }
-          .section-pad { padding: 64px 16px !important; }
-          .services-grid { grid-template-columns: 1fr !important; }
-          .strengths-grid { grid-template-columns: 1fr 1fr !important; }
-          .cred-grid { grid-template-columns: 1fr !important; }
-          .footer-inner { flex-direction: column !important; align-items: flex-start !important; }
-          .contact-cta-hide { display: none; }
-          .sector-tab { padding: 12px 14px; font-size: 0.72rem; }
-          .about-dark-box { grid-column: auto !important; }
-        }
-        @media (max-width: 540px) {
-          .products-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
-          .product-img-box { height: 140px; }
-          .product-card-img { height: 140px; }
-          .strengths-grid { grid-template-columns: 1fr !important; }
-        }
-        @media (min-width: 769px) {
-          .mobile-menu-btn { display: none !important; }
-          .mobile-nav { display: none !important; }
-        }
-      `}</style>
-
-      {/* ── NAVBAR ── */}
-      <nav style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 100, background: scrolled ? "rgba(255,255,255,0.97)" : "#fff", borderBottom: "1px solid #e8ecf0", boxShadow: scrolled ? "0 2px 20px rgba(10,26,58,0.08)" : "none", transition: "box-shadow 0.3s" }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 64 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", flexShrink: 0 }} onClick={() => scrollTo("home")}>
-            <div style={{ width: 38, height: 38, background: "#0a1a3a", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Playfair Display', serif", fontWeight: 900, fontSize: "1rem", color: "#c0392b" }}>SR</div>
-            <div>
-              <div style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: "0.95rem", color: "#0a1a3a", lineHeight: 1.1 }}>S.R. ENTERPRISES</div>
-              <div style={{ fontFamily: "'Source Sans 3', sans-serif", fontSize: "0.6rem", color: "#888", letterSpacing: "0.1em", textTransform: "uppercase" }}>Scrap & Industrial Services</div>
-            </div>
-          </div>
-          <div className="desktop-nav" style={{ display: "flex", gap: 18, alignItems: "center" }}>
-            {NAV_LINKS.map((l) => (
-              <span key={l} className={`sr-nav-link${activeNav === l ? " active" : ""}`} onClick={() => scrollTo(l.toLowerCase())}>{l}</span>
-            ))}
-          </div>
-          <a className="desktop-cta sr-btn-primary" href="tel:+919790401015" style={{ fontSize: "0.75rem", padding: "9px 18px", flexShrink: 0 }}>Get Quote</a>
-          <button className="mobile-menu-btn" onClick={() => setMenuOpen(!menuOpen)} style={{ background: "none", border: "none", cursor: "pointer", flexDirection: "column", gap: 5, padding: 8 }}>
-            <span style={{ width: 24, height: 2, background: "#0a1a3a", display: "block", transition: "0.3s", transform: menuOpen ? "rotate(45deg) translate(5px,5px)" : "none" }} />
-            <span style={{ width: 24, height: 2, background: "#0a1a3a", display: "block", opacity: menuOpen ? 0 : 1, transition: "0.3s" }} />
-            <span style={{ width: 24, height: 2, background: "#0a1a3a", display: "block", transition: "0.3s", transform: menuOpen ? "rotate(-45deg) translate(5px,-5px)" : "none" }} />
-          </button>
+    <div style={{ background: C.iron, border: `1px solid ${C.rust}`, borderRadius: 4, padding: "10px 14px", fontSize: 11 }}>
+      <div style={{ color: C.amber, marginBottom: 4, fontWeight: 700, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", fontSize: 10 }}>{label}</div>
+      {payload.map((p, i) => (
+        <div key={i} style={{ color: C.chrome, display: "flex", gap: 8, alignItems: "center", marginTop: 3 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 1, background: p.color || C.rust, display: "inline-block" }} />
+          <span style={{ color: C.zincL }}>{p.name}:</span>
+          <span style={{ fontWeight: 700, color: C.white }}>{fs(p.value)}</span>
         </div>
-        {menuOpen && (
-          <div className="mobile-nav" style={{ background: "#fff", borderTop: "1px solid #e8ecf0", padding: "8px 20px 16px", display: "block" }}>
-            {NAV_LINKS.map((l) => (
-              <div key={l} onClick={() => scrollTo(l.toLowerCase())} style={{ padding: "12px 0", borderBottom: "1px solid #f0f0f0", fontFamily: "'Source Sans 3', sans-serif", fontWeight: 600, fontSize: "0.88rem", color: "#0a1a3a", cursor: "pointer", letterSpacing: "0.06em", textTransform: "uppercase" }}>{l}</div>
-            ))}
-            <a href="tel:+919790401015" className="sr-btn-primary" style={{ display: "block", textAlign: "center", marginTop: 12 }}>📞 Call Now</a>
+      ))}
+    </div>
+  );
+};
+
+const Card = ({ children, style = {}, accent = C.rust }) => (
+  <div style={{
+    background: C.iron,
+    border: `1px solid rgba(192,57,43,0.25)`,
+    borderTop: `3px solid ${accent}`,
+    borderRadius: 4,
+    padding: 18,
+    position: "relative",
+    ...style
+  }}>{children}</div>
+);
+
+const SectionTitle = ({ children, color = C.rust }) => (
+  <div style={{
+    fontFamily: "'Oswald', sans-serif",
+    fontSize: 11,
+    fontWeight: 600,
+    color: C.dimText,
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+    marginBottom: 16,
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+  }}>
+    <span style={{ display: "inline-block", width: 14, height: 3, background: color }} />
+    <span>{children}</span>
+  </div>
+);
+
+const KPICard = ({ val, lbl, sub, color = C.rust, icon }) => (
+  <div style={{
+    background: C.iron,
+    border: `1px solid rgba(192,57,43,0.2)`,
+    borderBottom: `3px solid ${color}`,
+    borderRadius: 4,
+    padding: "18px 20px",
+    flex: 1,
+    minWidth: 160,
+    position: "relative",
+    overflow: "hidden",
+  }}>
+    <div style={{ position: "absolute", right: 12, top: 10, fontSize: 28, opacity: 0.08 }}>{icon}</div>
+    <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 26, fontWeight: 700, color, lineHeight: 1.1, marginBottom: 4 }}>{val}</div>
+    <div style={{ fontSize: 10, fontWeight: 700, color: C.dimText, textTransform: "uppercase", letterSpacing: "0.09em" }}>{lbl}</div>
+    {sub && <div style={{ fontSize: 9, color: C.zinc, marginTop: 4, lineHeight: 1.4 }}>{sub}</div>}
+  </div>
+);
+
+const InlineBar = ({ val, max, color = C.rust }) => (
+  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+    <div style={{ flex: 1, height: 3, background: "rgba(255,255,255,0.06)", borderRadius: 1 }}>
+      <div style={{ width: `${Math.min(100, (val / max * 100)).toFixed(1)}%`, height: "100%", background: color }} />
+    </div>
+    <span style={{ fontSize: 9, color: C.zinc, minWidth: 34, textAlign: "right" }}>{(val / max * 100).toFixed(1)}%</span>
+  </div>
+);
+
+const renderLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+  if (percent < 0.04) return null;
+  const R = Math.PI / 180, r = innerRadius + (outerRadius - innerRadius) * 0.5;
+  const x = cx + r * Math.cos(-midAngle * R), y = cy + r * Math.sin(-midAngle * R);
+  return <text x={x} y={y} fill="white" textAnchor="middle" dominantBaseline="central" fontSize={9} fontWeight={700}>{`${(percent * 100).toFixed(0)}%`}</text>;
+};
+
+const thStyle = {
+  background: C.steelM,
+  color: C.dimText,
+  padding: "8px 12px",
+  textAlign: "right",
+  fontSize: 9,
+  fontWeight: 700,
+  textTransform: "uppercase",
+  letterSpacing: "0.07em",
+  position: "sticky",
+  top: 0,
+  whiteSpace: "nowrap",
+  borderBottom: `2px solid ${C.rust}`,
+  fontFamily: "'Oswald', sans-serif",
+  zIndex: 2,
+};
+const tdStyle = { padding: "7px 12px", textAlign: "right", fontSize: 10, color: C.chrome, fontVariantNumeric: "tabular-nums" };
+
+/* ══════════════════════════════════════════════════════════════
+   PAGES
+══════════════════════════════════════════════════════════════ */
+function OverviewPage({ data, agg }) {
+  const { branches, parties, fys, types, total, partyPie, branchPie } = agg;
+  const topBranch = branches[0], topParty = parties[0];
+  const fy2526 = fys.find(f => f.fy.includes("2025-26"))?.o || 0;
+  return (
+    <div style={{ padding: "24px 28px" }}>
+      <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
+        <KPICard val={fs(total)} lbl="Total Outstanding" sub={`${data.length} invoices across all branches`} color={C.rust} icon="⚙" />
+        <KPICard val={fs(fy2526)} lbl="FY 2025-26" sub="Current financial year" color={C.amber} icon="📅" />
+        <KPICard val={fs(topBranch?.o || 0)} lbl="Top Branch" sub={topBranch?.b} color={C.teal} icon="🏗" />
+        <KPICard val={fs(topParty?.o || 0)} lbl="Top Party" sub={`${topParty?.p?.slice(0, 28)} · ${topParty?.n} inv`} color={C.lime} icon="🤝" />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 16, marginBottom: 16 }}>
+        <Card>
+          <SectionTitle>Branch-wise Outstanding</SectionTitle>
+          <ResponsiveContainer width="100%" height={270}>
+            <BarChart data={branches.slice(0, 12)} layout="vertical" margin={{ left: 0, right: 10 }}>
+              <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.05)" horizontal={false} />
+              <XAxis type="number" tick={{ fill: C.zinc, fontSize: 9, fontFamily: "monospace" }} tickFormatter={fs} axisLine={false} tickLine={false} />
+              <YAxis type="category" dataKey="b" tick={{ fill: C.chromD, fontSize: 8 }} width={140} axisLine={false} tickLine={false} tickFormatter={v => v.replace("CW ", "").replace("CWC ", "").slice(0, 18)} />
+              <Tooltip content={<TT />} />
+              <Bar dataKey="o" name="Outstanding" radius={[0, 2, 2, 0]}>
+                {branches.slice(0, 12).map((_, i) => <Cell key={i} fill={PAL[i % PAL.length]} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+        <Card accent={C.amber}>
+          <SectionTitle color={C.amber}>Party Distribution</SectionTitle>
+          <ResponsiveContainer width="100%" height={270}>
+            <PieChart>
+              <Pie data={partyPie} cx="45%" cy="48%" innerRadius={55} outerRadius={100} dataKey="value" labelLine={false} label={renderLabel}>
+                {partyPie.map((e, i) => <Cell key={i} fill={e.color} />)}
+              </Pie>
+              <Tooltip content={<TT />} />
+              <Legend iconType="square" iconSize={8} formatter={v => <span style={{ color: C.chromD, fontSize: 9, fontFamily: "'Oswald', sans-serif" }}>{v}</span>} />
+            </PieChart>
+          </ResponsiveContainer>
+        </Card>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <Card accent={C.teal}>
+          <SectionTitle color={C.teal}>Financial Year Comparison</SectionTitle>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={fys} margin={{ left: 0, right: 10 }}>
+              <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="fy" tick={{ fill: C.zinc, fontSize: 9 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: C.zinc, fontSize: 9 }} tickFormatter={fs} axisLine={false} tickLine={false} />
+              <Tooltip content={<TT />} />
+              <Legend iconType="square" iconSize={7} formatter={v => <span style={{ color: C.chromD, fontSize: 9 }}>{v}</span>} />
+              <Bar dataKey="o" name="Outstanding" fill={C.rust} radius={[3, 3, 0, 0]} />
+              <Bar dataKey="bill" name="Billed" fill="rgba(26,188,156,0.3)" radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+        <Card accent={C.gold}>
+          <SectionTitle color={C.gold}>Invoice Type Split</SectionTitle>
+          <ResponsiveContainer width="100%" height={200}>
+            <PieChart>
+              <Pie data={types.map((t, i) => ({ name: t.t, value: t.o, color: PAL[i] }))} cx="45%" cy="48%" outerRadius={78} dataKey="value" labelLine={false} label={renderLabel}>
+                {types.map((_, i) => <Cell key={i} fill={PAL[i % PAL.length]} />)}
+              </Pie>
+              <Tooltip content={<TT />} />
+              <Legend iconType="square" iconSize={7} formatter={v => <span style={{ color: C.chromD, fontSize: 9 }}>{v}</span>} />
+            </PieChart>
+          </ResponsiveContainer>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function BranchPage({ agg }) {
+  const { branches, branchPie } = agg;
+  const max = branches[0]?.o || 1;
+  const total = branches.reduce((s, r) => s + r.o, 0);
+  return (
+    <div style={{ padding: "24px 28px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 16, marginBottom: 16 }}>
+        <Card>
+          <SectionTitle>Outstanding by Branch</SectionTitle>
+          <ResponsiveContainer width="100%" height={340}>
+            <BarChart data={branches} layout="vertical" margin={{ left: 0, right: 10 }}>
+              <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.05)" horizontal={false} />
+              <XAxis type="number" tick={{ fill: C.zinc, fontSize: 9 }} tickFormatter={fs} axisLine={false} tickLine={false} />
+              <YAxis type="category" dataKey="b" tick={{ fill: C.chromD, fontSize: 8 }} width={150} axisLine={false} tickLine={false} tickFormatter={v => v.replace("CW ", "").replace("CWC ", "").slice(0, 20)} />
+              <Tooltip content={<TT />} />
+              <Bar dataKey="o" name="Outstanding" radius={[0, 2, 2, 0]}>
+                {branches.map((_, i) => <Cell key={i} fill={PAL[i % PAL.length]} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+        <Card accent={C.amber}>
+          <SectionTitle color={C.amber}>Branch Share</SectionTitle>
+          <ResponsiveContainer width="100%" height={340}>
+            <PieChart>
+              <Pie data={branchPie} cx="45%" cy="45%" innerRadius={60} outerRadius={110} dataKey="value" labelLine={false} label={renderLabel}>
+                {branchPie.map((e, i) => <Cell key={i} fill={e.color} />)}
+              </Pie>
+              <Tooltip content={<TT />} />
+              <Legend iconType="square" iconSize={8} formatter={v => <span style={{ color: C.chromD, fontSize: 9 }}>{v}</span>} />
+            </PieChart>
+          </ResponsiveContainer>
+        </Card>
+      </div>
+      <Card>
+        <SectionTitle>Branch-wise Outstanding Table</SectionTitle>
+        <div style={{ overflowX: "auto", maxHeight: 380, overflowY: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+            <thead>
+              <tr>{["#","Branch","Billed","Paid","Outstanding","Invoices","Collection %","Share"].map((h, i) => (
+                <th key={i} style={{ ...thStyle, textAlign: i < 2 ? "left" : "right" }}>{h}</th>
+              ))}</tr>
+            </thead>
+            <tbody>
+              {branches.map((r, i) => {
+                const paid = r.bill - r.o;
+                const coll = r.bill > 0 ? (paid / r.bill * 100).toFixed(1) : "—";
+                const cc = parseFloat(coll) > 80 ? C.lime : parseFloat(coll) > 50 ? C.amber : C.rust;
+                return (
+                  <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)" }}>
+                    <td style={{ ...tdStyle, textAlign: "left", color: C.zinc }}>{i + 1}</td>
+                    <td style={{ ...tdStyle, textAlign: "left", color: C.white }}>{r.b}</td>
+                    <td style={tdStyle}>{fi(r.bill)}</td>
+                    <td style={{ ...tdStyle, color: C.lime }}>{fi(paid)}</td>
+                    <td style={{ ...tdStyle, fontWeight: 700, color: C.rust }}>{fi(r.o)}</td>
+                    <td style={tdStyle}>{r.n}</td>
+                    <td style={{ ...tdStyle, color: cc, fontWeight: 700 }}>{coll}%</td>
+                    <td style={{ ...tdStyle, minWidth: 110 }}><InlineBar val={r.o} max={max} color={PAL[i % PAL.length]} /></td>
+                  </tr>
+                );
+              })}
+              <tr style={{ background: "rgba(192,57,43,0.08)", fontWeight: 700, borderTop: `2px solid ${C.rust}` }}>
+                <td colSpan={2} style={{ ...tdStyle, textAlign: "left", color: C.amber, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.07em" }}>TOTAL</td>
+                <td style={{ ...tdStyle, color: C.chrome }}>{fi(branches.reduce((s, r) => s + r.bill, 0))}</td>
+                <td style={{ ...tdStyle, color: C.lime }}>{fi(branches.reduce((s, r) => s + r.bill - r.o, 0))}</td>
+                <td style={{ ...tdStyle, color: C.rust, fontWeight: 700 }}>{fi(total)}</td>
+                <td style={{ ...tdStyle, color: C.chrome }}>{branches.reduce((s, r) => s + r.n, 0)}</td>
+                <td colSpan={2} />
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function PartyPage({ agg }) {
+  const { parties, partyPie, fys } = agg;
+  const fyKeys = fys.map(f => f.fy);
+  const max = parties[0]?.o || 1;
+  const total = parties.reduce((s, r) => s + r.o, 0);
+  const fyColors = { "FY 2022-23": "#9b59b6", "FY 2023-24": "#1abc9c", "FY 2024-25": C.amber, "FY 2025-26": C.rust };
+  const top10 = parties.slice(0, 10).map(r => ({ name: r.p.length > 22 ? r.p.slice(0, 22) + "…" : r.p, ...Object.fromEntries(fyKeys.map(k => [k, r.byFY[k] || 0])) }));
+  return (
+    <div style={{ padding: "24px 28px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+        <Card><SectionTitle>Top Parties — All Years</SectionTitle>
+          <ResponsiveContainer width="100%" height={270}>
+            <PieChart>
+              <Pie data={partyPie} cx="45%" cy="48%" innerRadius={55} outerRadius={100} dataKey="value" labelLine={false} label={renderLabel}>
+                {partyPie.map((e, i) => <Cell key={i} fill={e.color} />)}
+              </Pie>
+              <Tooltip content={<TT />} />
+              <Legend iconType="square" iconSize={8} formatter={v => <span style={{ color: C.chromD, fontSize: 9 }}>{v}</span>} />
+            </PieChart>
+          </ResponsiveContainer>
+        </Card>
+        <Card accent={C.teal}><SectionTitle color={C.teal}>Top 10 — FY Stacked</SectionTitle>
+          <ResponsiveContainer width="100%" height={270}>
+            <BarChart data={top10} margin={{ left: 0, right: 10 }}>
+              <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="name" tick={{ fill: C.zinc, fontSize: 7 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: C.zinc, fontSize: 9 }} tickFormatter={fs} axisLine={false} tickLine={false} />
+              <Tooltip content={<TT />} />
+              <Legend iconType="square" iconSize={7} formatter={v => <span style={{ color: C.chromD, fontSize: 9 }}>{v}</span>} />
+              {fyKeys.map(fy => <Bar key={fy} dataKey={fy} stackId="s" fill={fyColors[fy] || C.rust} radius={fy === fyKeys[fyKeys.length - 1] ? [2, 2, 0, 0] : [0, 0, 0, 0]} />)}
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+      </div>
+      <Card>
+        <SectionTitle>Party-wise Table with FY Breakup</SectionTitle>
+        <div style={{ overflowX: "auto", maxHeight: 420, overflowY: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+            <thead><tr>
+              <th style={{ ...thStyle, textAlign: "left" }}>#</th>
+              <th style={{ ...thStyle, textAlign: "left" }}>Party</th>
+              {fyKeys.map(k => <th key={k} style={thStyle}>{k.replace("FY ", "")}</th>)}
+              <th style={thStyle}>Total</th>
+              <th style={thStyle}>Inv</th>
+              <th style={thStyle}>Share</th>
+            </tr></thead>
+            <tbody>
+              {parties.map((r, i) => (
+                <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)" }}>
+                  <td style={{ ...tdStyle, textAlign: "left", color: C.zinc }}>{i + 1}</td>
+                  <td style={{ ...tdStyle, textAlign: "left", color: C.white, maxWidth: 200, whiteSpace: "normal" }}>{r.p}</td>
+                  {fyKeys.map(k => <td key={k} style={tdStyle}>{r.byFY[k] > 0 ? fi(r.byFY[k]) : <span style={{ color: C.iron }}>—</span>}</td>)}
+                  <td style={{ ...tdStyle, fontWeight: 700, color: C.rust }}>{fi(r.o)}</td>
+                  <td style={tdStyle}>{r.n}</td>
+                  <td style={{ ...tdStyle, minWidth: 100 }}><InlineBar val={r.o} max={max} color={PAL[i % PAL.length]} /></td>
+                </tr>
+              ))}
+              <tr style={{ background: "rgba(192,57,43,0.08)", fontWeight: 700, borderTop: `2px solid ${C.rust}` }}>
+                <td colSpan={2} style={{ ...tdStyle, textAlign: "left", color: C.amber, fontFamily: "'Oswald', sans-serif" }}>GRAND TOTAL</td>
+                {fyKeys.map(k => <td key={k} style={{ ...tdStyle, color: C.chrome }}>{fi(agg.fys.find(f => f.fy === k)?.o || 0)}</td>)}
+                <td style={{ ...tdStyle, color: C.rust, fontWeight: 700 }}>{fi(total)}</td>
+                <td style={{ ...tdStyle, color: C.chrome }}>{parties.reduce((s, r) => s + r.n, 0)}</td>
+                <td />
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function FYPage({ agg }) {
+  const { fys, parties } = agg;
+  const total = fys.reduce((s, r) => s + r.o, 0);
+  const fyColors = ["#9b59b6", "#1abc9c", C.amber, C.rust];
+  return (
+    <div style={{ padding: "24px 28px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+        <Card><SectionTitle>Outstanding vs Billed by FY</SectionTitle>
+          <ResponsiveContainer width="100%" height={230}>
+            <BarChart data={fys} margin={{ left: 0, right: 10 }}>
+              <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="fy" tick={{ fill: C.zinc, fontSize: 9 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: C.zinc, fontSize: 9 }} tickFormatter={fs} axisLine={false} tickLine={false} />
+              <Tooltip content={<TT />} />
+              <Legend iconType="square" iconSize={7} formatter={v => <span style={{ color: C.chromD, fontSize: 9 }}>{v}</span>} />
+              <Bar dataKey="o" name="Outstanding" fill={C.rust} radius={[3, 3, 0, 0]} />
+              <Bar dataKey="bill" name="Billed" fill="rgba(26,188,156,0.25)" radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+        <Card accent={C.teal}><SectionTitle color={C.teal}>FY Distribution</SectionTitle>
+          <ResponsiveContainer width="100%" height={230}>
+            <PieChart>
+              <Pie data={fys.map((f, i) => ({ name: f.fy, value: f.o }))} cx="45%" cy="48%" innerRadius={55} outerRadius={95} dataKey="value" labelLine={false} label={renderLabel}>
+                {fys.map((_, i) => <Cell key={i} fill={fyColors[i]} />)}
+              </Pie>
+              <Tooltip content={<TT />} />
+              <Legend iconType="square" iconSize={8} formatter={v => <span style={{ color: C.chromD, fontSize: 9 }}>{v}</span>} />
+            </PieChart>
+          </ResponsiveContainer>
+        </Card>
+      </div>
+      <Card style={{ marginBottom: 16 }}>
+        <SectionTitle>FY-wise Summary</SectionTitle>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+          <thead><tr>{["Financial Year","Billed","Outstanding","Invoices","Collection %","Share"].map((h, i) => <th key={i} style={{ ...thStyle, textAlign: i === 0 ? "left" : "right" }}>{h}</th>)}</tr></thead>
+          <tbody>
+            {fys.map((r, i) => {
+              const coll = r.bill > 0 ? ((r.bill - r.o) / r.bill * 100).toFixed(1) : "—";
+              const cc = parseFloat(coll) > 85 ? C.lime : parseFloat(coll) > 50 ? C.amber : C.rust;
+              return <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                <td style={{ ...tdStyle, textAlign: "left", color: C.white, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>{r.fy}</td>
+                <td style={tdStyle}>{fi(r.bill)}</td>
+                <td style={{ ...tdStyle, fontWeight: 700, color: C.rust }}>{fi(r.o)}</td>
+                <td style={tdStyle}>{r.n}</td>
+                <td style={{ ...tdStyle, color: cc, fontWeight: 700 }}>{coll}%</td>
+                <td style={{ ...tdStyle, minWidth: 110 }}><InlineBar val={r.o} max={total} color={fyColors[i]} /></td>
+              </tr>;
+            })}
+            <tr style={{ background: "rgba(192,57,43,0.08)", borderTop: `2px solid ${C.rust}` }}>
+              <td style={{ ...tdStyle, textAlign: "left", color: C.amber, fontFamily: "'Oswald', sans-serif", fontWeight: 700 }}>TOTAL</td>
+              <td style={{ ...tdStyle, color: C.chrome }}>{fi(fys.reduce((s, r) => s + r.bill, 0))}</td>
+              <td style={{ ...tdStyle, color: C.rust, fontWeight: 700 }}>{fi(total)}</td>
+              <td style={{ ...tdStyle, color: C.chrome }}>{fys.reduce((s, r) => s + r.n, 0)}</td>
+              <td colSpan={2} />
+            </tr>
+          </tbody>
+        </table>
+      </Card>
+      {fys.slice().reverse().map((f, fi_) => {
+        const fyParties = parties.filter(p => (p.byFY[f.fy] || 0) > 0).map(p => ({ ...p, fyO: p.byFY[f.fy] || 0 })).sort((a, b) => b.fyO - a.fyO);
+        if (!fyParties.length) return null;
+        const maxFy = fyParties[0].fyO;
+        const colIdx = fys.indexOf(f);
+        return (
+          <Card key={f.fy} accent={fyColors[colIdx]} style={{ marginBottom: 14 }}>
+            <SectionTitle color={fyColors[colIdx]}>{f.fy} — Party Breakdown · {fs(f.o)} total</SectionTitle>
+            <div style={{ overflowX: "auto", maxHeight: 260, overflowY: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+                <thead><tr>{["#","Party Name","Outstanding","Invoices","Share of FY"].map((h, i) => <th key={i} style={{ ...thStyle, textAlign: i <= 1 ? "left" : "right" }}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {fyParties.map((r, i) => <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                    <td style={{ ...tdStyle, textAlign: "left", color: C.zinc }}>{i + 1}</td>
+                    <td style={{ ...tdStyle, textAlign: "left", color: C.white, maxWidth: 200, whiteSpace: "normal" }}>{r.p}</td>
+                    <td style={{ ...tdStyle, fontWeight: 700, color: C.rust }}>{fi(r.fyO)}</td>
+                    <td style={tdStyle}>{r.n}</td>
+                    <td style={{ ...tdStyle, minWidth: 120 }}><InlineBar val={r.fyO} max={maxFy} color={fyColors[colIdx]} /></td>
+                  </tr>)}
+                  <tr style={{ background: "rgba(192,57,43,0.08)", borderTop: `2px solid ${C.rust}` }}>
+                    <td colSpan={2} style={{ ...tdStyle, textAlign: "left", color: C.amber, fontFamily: "'Oswald', sans-serif" }}>TOTAL</td>
+                    <td style={{ ...tdStyle, color: C.rust, fontWeight: 700 }}>{fi(f.o)}</td>
+                    <td style={{ ...tdStyle, color: C.chrome }}>{fyParties.reduce((s, r) => s + r.n, 0)}</td>
+                    <td />
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+function TrendPage({ agg }) {
+  const { monthly, types } = agg;
+  return (
+    <div style={{ padding: "24px 28px" }}>
+      <Card style={{ marginBottom: 16 }}>
+        <SectionTitle>Monthly Outstanding Trend</SectionTitle>
+        <ResponsiveContainer width="100%" height={220}>
+          <LineChart data={monthly} margin={{ left: 0, right: 20 }}>
+            <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.05)" />
+            <XAxis dataKey="m" tick={{ fill: C.zinc, fontSize: 8 }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fill: C.zinc, fontSize: 9 }} tickFormatter={fs} axisLine={false} tickLine={false} />
+            <Tooltip content={<TT />} />
+            <Line type="monotone" dataKey="v" name="Outstanding" stroke={C.rust} strokeWidth={2} dot={{ r: 3, fill: C.rust, stroke: C.iron, strokeWidth: 2 }} activeDot={{ r: 5 }} />
+          </LineChart>
+        </ResponsiveContainer>
+      </Card>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <Card accent={C.teal}><SectionTitle color={C.teal}>Invoice Type — Donut</SectionTitle>
+          <ResponsiveContainer width="100%" height={280}>
+            <PieChart>
+              <Pie data={types.map((t, i) => ({ name: t.t, value: t.o }))} cx="45%" cy="48%" innerRadius={55} outerRadius={100} dataKey="value" labelLine={false} label={renderLabel}>
+                {types.map((_, i) => <Cell key={i} fill={PAL[i % PAL.length]} />)}
+              </Pie>
+              <Tooltip content={<TT />} />
+              <Legend iconType="square" iconSize={8} formatter={v => <span style={{ color: C.chromD, fontSize: 9 }}>{v}</span>} />
+            </PieChart>
+          </ResponsiveContainer>
+        </Card>
+        <Card accent={C.amber}><SectionTitle color={C.amber}>Invoice Type — Bar</SectionTitle>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={types} layout="vertical" margin={{ left: 0, right: 10 }}>
+              <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.05)" horizontal={false} />
+              <XAxis type="number" tick={{ fill: C.zinc, fontSize: 9 }} tickFormatter={fs} axisLine={false} tickLine={false} />
+              <YAxis type="category" dataKey="t" tick={{ fill: C.chromD, fontSize: 9 }} width={130} axisLine={false} tickLine={false} />
+              <Tooltip content={<TT />} />
+              <Bar dataKey="o" name="Outstanding" radius={[0, 2, 2, 0]}>
+                {types.map((_, i) => <Cell key={i} fill={PAL[i % PAL.length]} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function ListPage({ data }) {
+  const [search, setSearch] = useState("");
+  const [branchF, setBranchF] = useState("All");
+  const [fyF, setFyF] = useState("All");
+  const [typeF, setTypeF] = useState("All");
+  const [sort, setSort] = useState({ key: "outstanding", dir: -1 });
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 30;
+  const branches = useMemo(() => ["All", ...Array.from(new Set(data.map(r => r.branch))).sort()], [data]);
+  const fys = useMemo(() => ["All", ...Array.from(new Set(data.map(r => r.fy))).sort()], [data]);
+  const types = useMemo(() => ["All", ...Array.from(new Set(data.map(r => r.invoiceType))).sort()], [data]);
+  const filtered = useMemo(() => {
+    let d = data;
+    if (branchF !== "All") d = d.filter(r => r.branch === branchF);
+    if (fyF !== "All") d = d.filter(r => r.fy === fyF);
+    if (typeF !== "All") d = d.filter(r => r.invoiceType === typeF);
+    if (search) { const s = search.toLowerCase(); d = d.filter(r => r.party.toLowerCase().includes(s) || r.invoiceNo.toLowerCase().includes(s) || r.branch.toLowerCase().includes(s)); }
+    return [...d].sort((a, b) => { const av = a[sort.key], bv = b[sort.key]; if (typeof av === "number") return (av - bv) * sort.dir; return String(av).localeCompare(String(bv)) * sort.dir; });
+  }, [data, search, branchF, fyF, typeF, sort]);
+  const pages = Math.ceil(filtered.length / PER_PAGE);
+  const paged = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+  const totOut = filtered.reduce((s, r) => s + r.outstanding, 0);
+  const sortBy = k => setSort(s => ({ key: k, dir: s.key === k ? -s.dir : -1 }));
+  const SortIcon = ({ k }) => sort.key === k ? (sort.dir === -1 ? " ↓" : " ↑") : "";
+  const inpStyle = { background: C.steelM, border: `1px solid rgba(192,57,43,0.3)`, color: C.chrome, padding: "7px 12px", borderRadius: 3, fontSize: 11, outline: "none", fontFamily: "'DM Mono', monospace" };
+  return (
+    <div style={{ padding: "24px 28px" }}>
+      <Card style={{ marginBottom: 14 }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <input style={{ ...inpStyle, flex: 1, minWidth: 180 }} placeholder="Search party, invoice, branch…" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
+          {[{ val: branchF, set: setBranchF, opts: branches }, { val: fyF, set: setFyF, opts: fys }, { val: typeF, set: setTypeF, opts: types }].map((sel, i) => (
+            <select key={i} style={inpStyle} value={sel.val} onChange={e => { sel.set(e.target.value); setPage(1); }}>
+              {sel.opts.map(o => <option key={o}>{o}</option>)}
+            </select>
+          ))}
+          <div style={{ marginLeft: "auto", fontFamily: "'Oswald', sans-serif", fontSize: 12, color: C.dimText }}>
+            <span style={{ color: C.chrome, fontWeight: 700 }}>{filtered.length}</span> records &nbsp;·&nbsp;
+            <span style={{ color: C.rust, fontWeight: 700 }}>{fs(totOut)}</span> outstanding
+          </div>
+        </div>
+      </Card>
+      <Card>
+        <div style={{ overflowX: "auto", maxHeight: 500, overflowY: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+            <thead><tr>
+              {[["#",null],["Branch","branch"],["Party","party"],["Invoice","invoiceNo"],["Date","invoiceDate"],["FY","fy"],["Type","invoiceType"],["Billed","billAmt"],["Paid","paidAmt"],["Outstanding","outstanding"],["Reason",null]].map(([h, k], i) => (
+                <th key={i} onClick={k ? () => sortBy(k) : undefined} style={{ ...thStyle, textAlign: i >= 7 ? "right" : "left", cursor: k ? "pointer" : "default" }}>
+                  {h}{k && <SortIcon k={k} />}
+                </th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {paged.map((r, i) => (
+                <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.012)" }}>
+                  <td style={{ ...tdStyle, textAlign: "left", color: C.zinc }}>{(page-1)*PER_PAGE+i+1}</td>
+                  <td style={{ ...tdStyle, textAlign: "left", color: C.chrome, maxWidth: 120, whiteSpace: "normal" }}>{r.branch}</td>
+                  <td style={{ ...tdStyle, textAlign: "left", color: C.white, maxWidth: 160, whiteSpace: "normal" }}>{r.party}</td>
+                  <td style={{ ...tdStyle, textAlign: "left", color: C.zinc, fontFamily: "'DM Mono', monospace" }}>{r.invoiceNo}</td>
+                  <td style={{ ...tdStyle, textAlign: "left", color: C.zinc }}>{r.invoiceDate ? r.invoiceDate.toLocaleDateString("en-IN") : "—"}</td>
+                  <td style={{ ...tdStyle, textAlign: "left" }}><span style={{ background: "rgba(192,57,43,0.15)", color: C.rustL, padding: "2px 6px", borderRadius: 2, fontSize: 9, fontFamily: "'Oswald', sans-serif", fontWeight: 700 }}>{r.fy}</span></td>
+                  <td style={{ ...tdStyle, textAlign: "left", color: C.zinc, fontSize: 9, maxWidth: 100, whiteSpace: "normal" }}>{r.invoiceType}</td>
+                  <td style={tdStyle}>{fi(r.billAmt)}</td>
+                  <td style={{ ...tdStyle, color: C.lime }}>{fi(r.paidAmt)}</td>
+                  <td style={{ ...tdStyle, fontWeight: 700, color: r.outstanding > 0 ? C.rust : C.lime }}>{fi(r.outstanding)}</td>
+                  <td style={{ ...tdStyle, textAlign: "left", color: C.zinc, fontSize: 9, maxWidth: 180, whiteSpace: "normal" }}>{r.reason || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {pages > 1 && (
+          <div style={{ display: "flex", gap: 5, justifyContent: "center", marginTop: 14, flexWrap: "wrap" }}>
+            <button onClick={() => setPage(p => Math.max(1, p-1))} disabled={page===1} style={{ padding: "5px 12px", background: C.ironL, border: `1px solid rgba(192,57,43,0.3)`, borderRadius: 3, color: C.chromD, fontSize: 10, cursor: "pointer" }}>‹ Prev</button>
+            {Array.from({ length: Math.min(pages, 9) }, (_, i) => {
+              const p = pages <= 9 ? i+1 : page <= 5 ? i+1 : page >= pages-4 ? pages-8+i : page-4+i;
+              return <button key={p} onClick={() => setPage(p)} style={{ padding: "5px 10px", background: p===page ? C.rust : C.ironL, border: `1px solid ${p===page ? C.rust : "rgba(192,57,43,0.3)"}`, borderRadius: 3, color: p===page ? "#fff" : C.chromD, fontSize: 10, cursor: "pointer" }}>{p}</button>;
+            })}
+            <button onClick={() => setPage(p => Math.min(pages, p+1))} disabled={page===pages} style={{ padding: "5px 12px", background: C.ironL, border: `1px solid rgba(192,57,43,0.3)`, borderRadius: 3, color: C.chromD, fontSize: 10, cursor: "pointer" }}>Next ›</button>
           </div>
         )}
-      </nav>
+      </Card>
+    </div>
+  );
+}
 
-      {/* ── HERO ── */}
-      <section id="home" ref={registerRef("home", "Home")} style={{ minHeight: "100vh", background: "linear-gradient(135deg, #0a1a3a 0%, #0d2254 60%, #0a1a3a 100%)", display: "flex", alignItems: "center", position: "relative", overflow: "hidden", paddingTop: 64 }}>
-        <div style={{ position: "absolute", top: 0, right: 0, width: "45%", height: "100%", backgroundImage: "repeating-linear-gradient(45deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 40px)", pointerEvents: "none" }} />
-        <div style={{ position: "absolute", bottom: -80, left: -80, width: 400, height: 400, borderRadius: "50%", background: "rgba(192,57,43,0.08)", pointerEvents: "none" }} />
-        <div style={{ maxWidth: 1200, margin: "0 auto", padding: "80px 20px", position: "relative", width: "100%" }}>
-          <div style={{ maxWidth: 680 }}>
-            <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginBottom: 28, background: "rgba(192,57,43,0.15)", border: "1px solid rgba(192,57,43,0.3)", padding: "6px 14px", fontFamily: "'Source Sans 3', sans-serif", fontSize: "0.72rem", color: "#e87c73", letterSpacing: "0.12em", textTransform: "uppercase" }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#c0392b", display: "inline-block", flexShrink: 0 }} />
-              Tirunelveli, Tamil Nadu · GST: 33BZEPS6674QZC
-            </div>
-            <h1 className="sr-font-display" style={{ fontSize: "clamp(2.4rem, 8vw, 5rem)", fontWeight: 900, color: "#fff", lineHeight: 1.05, marginBottom: 8, letterSpacing: "-0.02em" }}>S.R.</h1>
-            <h1 className="sr-font-display" style={{ fontSize: "clamp(2.4rem, 8vw, 5rem)", fontWeight: 900, color: "#c0392b", lineHeight: 1.05, marginBottom: 28, letterSpacing: "-0.02em" }}>ENTERPRISES</h1>
-            <div style={{ width: 60, height: 3, background: "#c0392b", marginBottom: 28 }} />
-            <p className="sr-font-body" style={{ fontSize: "clamp(1rem, 3vw, 1.2rem)", color: "rgba(255,255,255,0.75)", lineHeight: 1.7, marginBottom: 16, fontWeight: 300 }}>Dealers in all kinds of plant & machinery — ferrous & non-ferrous scrap.</p>
-            <p className="sr-font-body" style={{ fontSize: "clamp(0.88rem, 2.5vw, 1rem)", color: "rgba(255,255,255,0.55)", lineHeight: 1.7, marginBottom: 40 }}>
-              Trusted partner for MS scrap, machinery scrap, industrial scrap clearance, and bulk scrap handling with <strong style={{ color: "#e87c73", fontWeight: 700 }}>20+ years</strong> of experience.
-            </p>
-            <div className="hero-cta-row">
-              <a className="sr-btn-primary" href="tel:+919790401015">Call: +91 97904 01015</a>
-              <span className="sr-btn-outline" onClick={() => scrollTo("products")} style={{ cursor: "pointer" }}>Our Products</span>
-            </div>
-            <div className="hero-badges">
-              {[["⚖️", "Transparent Pricing"], ["🚛", "Strong Logistics"], ["⚡", "Quick Payment"]].map(([ic, lb]) => (
-                <div key={lb} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: "1.1rem" }}>{ic}</span>
-                  <span className="sr-font-body" style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.82rem", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>{lb}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-        <div style={{ position: "absolute", bottom: 28, left: "50%", transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-          <span className="sr-font-body" style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.65rem", letterSpacing: "0.15em", textTransform: "uppercase" }}>Scroll</span>
-          <div style={{ width: 1, height: 36, background: "linear-gradient(to bottom, rgba(255,255,255,0.3), transparent)" }} />
-        </div>
-      </section>
-
-      {/* ── ABOUT ── */}
-      <section id="about" ref={registerRef("about", "About")} className="section-pad" style={{ padding: "100px 24px", background: "#fff" }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-          <div className="about-grid">
-            <div className={`fade-up${isVisible("about") ? " visible" : ""}`}>
-              <div className="sr-font-body" style={{ fontSize: "0.78rem", color: "#c0392b", fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", marginBottom: 12 }}>About Us</div>
-              <h2 className="sr-font-display" style={{ fontSize: "clamp(1.8rem, 4vw, 3rem)", fontWeight: 700, color: "#0a1a3a", lineHeight: 1.15 }}>Built on Trust.</h2>
-              <h2 className="sr-font-display" style={{ fontSize: "clamp(1.8rem, 4vw, 3rem)", fontWeight: 700, color: "#0a1a3a", lineHeight: 1.15, marginBottom: 4 }}>Powered by <span style={{ color: "#c0392b" }}>Experience.</span></h2>
-              <div className="divider-red" />
-              <p className="sr-font-body" style={{ fontSize: "1rem", color: "#444", lineHeight: 1.8, marginBottom: 20 }}>
-                S.R. Enterprises is a well-established scrap trading and industrial services company with over <strong>20 years of industry experience</strong>, serving industrial, infrastructure, and construction sectors.
-              </p>
-              <p className="sr-font-body" style={{ fontSize: "0.95rem", color: "#666", lineHeight: 1.8, marginBottom: 32 }}>
-                A family-driven enterprise led by experienced professionals, we have successfully executed multiple private and government projects — delivering efficient operations and maintaining high levels of client satisfaction.
-              </p>
-              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                {["Transparent", "Reliable", "Fast"].map(tag => (
-                  <span key={tag} className="sr-font-body" style={{ border: "1.5px solid #0a1a3a", padding: "6px 16px", fontSize: "0.78rem", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#0a1a3a" }}>{tag}</span>
-                ))}
-              </div>
-            </div>
-            <div className="about-inner-grid">
-              {[
-                { icon: "🔬", title: "What We Specialize In", items: ["Ferrous & Non-Ferrous scrap handling", "MS scrap and machinery procurement", "Industrial scrap management"], dark: true },
-                { icon: "🏛️", title: "Delivery & Credibility", items: ["Family-driven, expert-led enterprise", "Multiple govt & private projects", "Transparent operations always"], dark: false },
-              ].map(({ icon, title, items, dark }, i) => (
-                <div key={i} className={`fade-up d${i + 2}${isVisible("about") ? " visible" : ""}${dark ? " about-dark-box" : ""}`} style={{ background: dark ? "#0a1a3a" : "#fff", border: !dark ? "2px solid #e8ecf0" : "none", padding: "24px 20px", gridColumn: dark ? "1/3" : "auto" }}>
-                  <div style={{ fontSize: "1.3rem", marginBottom: 10 }}>{icon}</div>
-                  <div className="sr-font-body" style={{ fontWeight: 700, fontSize: "0.85rem", color: dark ? "#fff" : "#0a1a3a", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.06em" }}>{title}</div>
-                  {items.map(item => (
-                    <div key={item} style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "flex-start" }}>
-                      <span style={{ color: "#c0392b", fontWeight: 700, fontSize: "0.85rem", marginTop: 2, flexShrink: 0 }}>✓</span>
-                      <span className="sr-font-body" style={{ fontSize: "0.88rem", color: dark ? "rgba(255,255,255,0.8)" : "#555", lineHeight: 1.5 }}>{item}</span>
-                    </div>
-                  ))}
-                </div>
-              ))}
-              <div className={`fade-up d4${isVisible("about") ? " visible" : ""}`} style={{ background: "#c0392b", padding: "24px 20px" }}>
-                <div className="sr-font-display" style={{ fontSize: "2.2rem", fontWeight: 900, color: "#fff", lineHeight: 1 }}>20+</div>
-                <div className="sr-font-body" style={{ fontSize: "0.82rem", color: "rgba(255,255,255,0.8)", marginTop: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em" }}>Years of Industry Experience</div>
-              </div>
-              <div className={`fade-up d5${isVisible("about") ? " visible" : ""}`} style={{ background: "#f7f8fa", border: "2px solid #e8ecf0", padding: "24px 20px" }}>
-                <div style={{ fontSize: "1.4rem", marginBottom: 8 }}>🛡️</div>
-                <div className="sr-font-body" style={{ fontWeight: 700, fontSize: "0.85rem", color: "#0a1a3a", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}>Core Values</div>
-                <div className="sr-font-body" style={{ fontSize: "0.82rem", color: "#888", lineHeight: 1.6 }}>Transparency · Reliability · Clear Communication · Consistent Delivery</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── SERVICES ── */}
-      <section id="services" ref={registerRef("services", "Services")} className="section-pad" style={{ padding: "100px 24px", background: "#f7f8fa" }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-          <div style={{ textAlign: "center", marginBottom: 56 }}>
-            <div className={`fade-up${isVisible("services") ? " visible" : ""} sr-font-body`} style={{ fontSize: "0.78rem", color: "#c0392b", fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", marginBottom: 12 }}>Our Services</div>
-            <h2 className={`fade-up d1${isVisible("services") ? " visible" : ""} sr-font-display`} style={{ fontSize: "clamp(1.8rem, 4vw, 3rem)", fontWeight: 700, color: "#0a1a3a" }}>End-to-End Scrap & Site Solutions</h2>
-            <div style={{ width: 48, height: 3, background: "#c0392b", margin: "16px auto 0" }} />
-          </div>
-          <div className="services-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 20 }}>
-            {SERVICES.map((s, i) => (
-              <div key={s.title} className={`service-card fade-up d${Math.min(i + 1, 7)}${isVisible("services") ? " visible" : ""}`}>
-                <div style={{ fontSize: "1.8rem", marginBottom: 14 }}>{s.icon}</div>
-                <h3 className="sr-font-display" style={{ fontSize: "1rem", fontWeight: 700, color: "#0a1a3a", marginBottom: 8 }}>{s.title}</h3>
-                <p className="sr-font-body" style={{ fontSize: "0.88rem", color: "#666", lineHeight: 1.7 }}>{s.desc}</p>
-              </div>
-            ))}
-          </div>
-          <div className={`fade-up${isVisible("services") ? " visible" : ""}`} style={{ marginTop: 44, background: "#0a1a3a", padding: "28px 32px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 20 }}>
-            <div>
-              <div className="sr-font-display" style={{ fontSize: "1.3rem", fontWeight: 700, color: "#fff" }}>Service Promise</div>
-              <div className="sr-font-display" style={{ fontSize: "1.8rem", fontWeight: 900, color: "#c0392b" }}>Clean. Safe. Efficient.</div>
-            </div>
-            <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-              {["Safety Focus", "On-Time", "Accurate", "Supervised"].map(tag => (
-                <div key={tag} className="sr-font-body" style={{ padding: "7px 16px", border: "1px solid rgba(255,255,255,0.2)", color: "rgba(255,255,255,0.8)", fontSize: "0.8rem", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>{tag}</div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── PRODUCTS ── */}
-      <section id="products" ref={registerRef("products", "Products")} className="section-pad" style={{ padding: "100px 24px", background: "#fff" }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-          <div style={{ textAlign: "center", marginBottom: 48 }}>
-            <div className={`fade-up${isVisible("products") ? " visible" : ""} sr-font-body`} style={{ fontSize: "0.78rem", color: "#c0392b", fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", marginBottom: 12 }}>What We Buy & Deal</div>
-            <h2 className={`fade-up d1${isVisible("products") ? " visible" : ""} sr-font-display`} style={{ fontSize: "clamp(1.8rem, 4vw, 3rem)", fontWeight: 700, color: "#0a1a3a", marginBottom: 4 }}>
-              Our <span style={{ color: "#c0392b" }}>Products</span>
-            </h2>
-            <div style={{ width: 48, height: 3, background: "#c0392b", margin: "16px auto 20px" }} />
-            <p className={`fade-up d2${isVisible("products") ? " visible" : ""} sr-font-body`} style={{ fontSize: "0.95rem", color: "#777", maxWidth: 580, margin: "0 auto 32px", lineHeight: 1.7 }}>
-              From ferrous MS scrap to non-ferrous alloys, copper, brass, and demolition services — we handle the full spectrum.
-            </p>
-            {/* Filter pills */}
-            <div className={`fade-up d3${isVisible("products") ? " visible" : ""}`} style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
-              {PRODUCT_FILTERS.map(f => (
-                <button key={f} className={`filter-pill${activeProductFilter === f ? " active-pill" : ""}`} onClick={() => setActiveProductFilter(f)}>{f}</button>
-              ))}
-            </div>
-          </div>
-
-          {/* Product grid */}
-          <div className="products-grid">
-            {filteredProducts.map((p, i) => (
-              <div
-                key={p.id}
-                className={`product-card fade-up d${Math.min((i % 4) + 1, 4)}${isVisible("products") ? " visible" : ""}`}
-        
-             
-              >
-                <div style={{ position: "absolute", top: 10, left: 10, zIndex: 2 }}>
-                  <span className="product-cat-badge" style={{ background: p.category === "Ferrous" ? "#c0392b" : p.category === "Non-Ferrous" ? "#0a1a3a" : "#555", color: "#fff" }}>{p.category}</span>
-                </div>
-                <div className="product-img-box">
-                  <img src={p.img} alt={p.title} className="product-card-img"
-                    onError={(e) => { e.target.style.display = "none"; e.target.parentNode.style.background = "#1a2d5a"; }}
-                  />
-                </div>
-                <div className="product-card-overlay">
-                  <p className="sr-font-body" style={{ fontSize: "0.82rem", color: "rgba(255,255,255,0.9)", lineHeight: 1.5 }}>{p.desc}</p>
-                </div>
-                <div style={{ padding: "14px 16px 16px" }}>
-                  <h3 className="sr-font-display" style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0a1a3a", lineHeight: 1.3 }}>{p.title}</h3>
-                  <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: p.color, display: "inline-block", flexShrink: 0 }} />
-                    <span className="sr-font-body" style={{ fontSize: "0.72rem", color: "#888", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em" }}>{p.category}</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* CTA strip */}
-          <div className={`fade-up${isVisible("products") ? " visible" : ""}`} style={{ marginTop: 48, background: "#f7f8fa", border: "2px solid #e8ecf0", padding: "28px 32px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
-            <div>
-              <div className="sr-font-display" style={{ fontSize: "1.2rem", fontWeight: 700, color: "#0a1a3a" }}>Have scrap to sell or clear?</div>
-              <div className="sr-font-body" style={{ fontSize: "0.88rem", color: "#666", marginTop: 4 }}>We offer transparent evaluation and quick settlements for all types of industrial and commercial scrap.</div>
-            </div>
-            <a href="tel:+919790401015" className="sr-btn-primary" style={{ flexShrink: 0 }}>📞 Get a Quote</a>
-          </div>
-        </div>
-      </section>
-
-      {/* ── CLIENTS BY SECTOR ── */}
-      <section id="clients" ref={registerRef("clients", "Clients")} className="section-pad" style={{ padding: "100px 24px", background: "#f7f8fa" }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-          <div style={{ textAlign: "center", marginBottom: 56 }}>
-            <div className={`fade-up${isVisible("clients") ? " visible" : ""} sr-font-body`} style={{ fontSize: "0.78rem", color: "#c0392b", fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", marginBottom: 12 }}>Our Clients & Projects</div>
-            <h2 className={`fade-up d1${isVisible("clients") ? " visible" : ""} sr-font-display`} style={{ fontSize: "clamp(1.8rem, 4vw, 3rem)", fontWeight: 700, color: "#0a1a3a", marginBottom: 4 }}>Trusted by Industry &</h2>
-            <h2 className={`fade-up d2${isVisible("clients") ? " visible" : ""} sr-font-display`} style={{ fontSize: "clamp(1.8rem, 4vw, 3rem)", fontWeight: 700, color: "#c0392b" }}>Infrastructure Leaders</h2>
-            <div style={{ width: 48, height: 3, background: "#c0392b", margin: "16px auto 0" }} />
-          </div>
-
-          {/* Sector tabs + content */}
-          <div className={`fade-up d2${isVisible("clients") ? " visible" : ""}`} style={{ background: "#fff", border: "1px solid #e8ecf0" }}>
-            <div className="sector-tabs-row">
-              {CLIENT_SECTORS.map(s => (
-                <div key={s.key} className={`sector-tab${activeSector === s.key ? " active-sector" : ""}`} onClick={() => setActiveSector(s.key)}>
-                  <span>{s.icon}</span>
-                  <span>{s.label}</span>
-                </div>
-              ))}
-            </div>
-
-            {activeSectorData && (
-              <div className="sector-content-grid">
-                {/* Client list */}
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
-                    <div style={{ width: 40, height: 40, background: activeSectorData.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.2rem", flexShrink: 0 }}>{activeSectorData.icon}</div>
-                    <div>
-                      <div className="sr-font-display" style={{ fontSize: "1.2rem", fontWeight: 700, color: "#0a1a3a" }}>{activeSectorData.label}</div>
-                      <div className="sr-font-body" style={{ fontSize: "0.78rem", color: "#888" }}>{activeSectorData.clients.length}{activeSectorData.key === "manufacturing" ? "+" : ""} clients in this sector</div>
-                    </div>
-                  </div>
-                  {activeSectorData.clients.map((c, i) => (
-                    <div key={c} className="client-name-row">
-                      <div style={{ width: 32, height: 32, background: activeSectorData.color, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                        <span style={{ fontFamily: "'Playfair Display', serif", fontWeight: 900, fontSize: "0.62rem", color: "#fff" }}>{c.slice(0, 2).toUpperCase()}</span>
-                      </div>
-                      <span className="sr-font-body" style={{ fontSize: "0.95rem", fontWeight: 600, color: "#0a1a3a" }}>{c}</span>
-                    </div>
-                  ))}
-                  {activeSectorData.key === "manufacturing" && (
-                    <div className="sr-font-body" style={{ fontSize: "0.82rem", color: "#c0392b", fontWeight: 700, marginTop: 10, paddingTop: 10, borderTop: "1px solid #f0f0f0" }}>…and many more</div>
-                  )}
-                </div>
-
-                {/* Sector info */}
-                <div>
-                  <div style={{ background: activeSectorData.color, padding: "28px 24px", marginBottom: 20 }}>
-                    <div className="sr-font-body" style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.7)", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 8 }}>About this sector</div>
-                    <div className="sr-font-display" style={{ fontSize: "1.2rem", fontWeight: 700, color: "#fff", marginBottom: 12 }}>{activeSectorData.label} Clients</div>
-                    <p className="sr-font-body" style={{ fontSize: "0.88rem", color: "rgba(255,255,255,0.85)", lineHeight: 1.7 }}>{activeSectorData.desc}</p>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
-                    <div style={{ background: "#f7f8fa", border: "1px solid #e8ecf0", padding: "20px 18px", textAlign: "center" }}>
-                      <div className="sr-font-display" style={{ fontSize: "2rem", fontWeight: 900, color: "#c0392b" }}>{activeSectorData.clients.length}{activeSectorData.key === "manufacturing" ? "+" : ""}</div>
-                      <div className="sr-font-body" style={{ fontSize: "0.72rem", color: "#888", textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 4 }}>Clients</div>
-                    </div>
-                    <div style={{ background: "#f7f8fa", border: "1px solid #e8ecf0", padding: "20px 18px", textAlign: "center" }}>
-                      <div className="sr-font-display" style={{ fontSize: "2rem", fontWeight: 900, color: "#0a1a3a" }}>20+</div>
-                      <div className="sr-font-body" style={{ fontSize: "0.72rem", color: "#888", textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 4 }}>Yrs Serving</div>
-                    </div>
-                  </div>
-                  <div style={{ border: "2px solid #e8ecf0", padding: "18px 20px" }}>
-                    <div className="sr-font-body" style={{ fontSize: "0.72rem", color: "#c0392b", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 10 }}>Our Motto</div>
-                    {["Quality service to our clients", "Top prices, sourced transparently", "Open business relationships always"].map(m => (
-                      <div key={m} style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                        <span style={{ color: "#c0392b", fontWeight: 700, flexShrink: 0 }}>→</span>
-                        <span className="sr-font-body" style={{ fontSize: "0.85rem", color: "#444" }}>{m}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Credential highlights */}
-          <div className="cred-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 18, marginTop: 28 }}>
-            {[
-              { icon: "📋", title: "Government Tender Participation", desc: "Executed contracts through structured processes and clear documentation." },
-              { icon: "🤝", title: "Secured Service Contracts", desc: "Long-term partnerships with leading industrial and infrastructure players." },
-              { icon: "⚖️", title: "Transparent & Accurate Operations", desc: "Every transaction backed by precise weighment and clear communication." },
-            ].map((item, i) => (
-              <div key={item.title} className={`fade-up d${i + 2}${isVisible("clients") ? " visible" : ""}`} style={{ background: "#fff", padding: "24px 20px", borderLeft: "4px solid #c0392b" }}>
-                <div style={{ fontSize: "1.4rem", marginBottom: 10 }}>{item.icon}</div>
-                <div className="sr-font-body" style={{ fontWeight: 700, fontSize: "0.88rem", color: "#0a1a3a", marginBottom: 6, textTransform: "uppercase" }}>{item.title}</div>
-                <div className="sr-font-body" style={{ fontSize: "0.85rem", color: "#666", lineHeight: 1.6 }}>{item.desc}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── STRENGTHS ── */}
-      <section id="strengths" ref={registerRef("strengths", "Strengths")} className="section-pad" style={{ padding: "100px 24px", background: "#0a1a3a" }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-          <div style={{ textAlign: "center", marginBottom: 56 }}>
-            <div className={`fade-up${isVisible("strengths") ? " visible" : ""} sr-font-body`} style={{ fontSize: "0.78rem", color: "#e87c73", fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", marginBottom: 12 }}>Our Strengths & Team</div>
-            <h2 className={`fade-up d1${isVisible("strengths") ? " visible" : ""} sr-font-display`} style={{ fontSize: "clamp(1.8rem, 4vw, 3rem)", fontWeight: 700, color: "#fff" }}>
-              Execution Strength You Can <span style={{ color: "#c0392b" }}>Depend On</span>
-            </h2>
-            <div style={{ width: 48, height: 3, background: "#c0392b", margin: "16px auto 0" }} />
-          </div>
-          <div className="strengths-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 20, marginBottom: 40 }}>
-            {STRENGTHS.map((s, i) => (
-              <div key={s.label} className={`fade-up d${i + 1}${isVisible("strengths") ? " visible" : ""}`} style={{ borderTop: "4px solid #c0392b", padding: "28px 22px", background: "rgba(255,255,255,0.04)" }}>
-                <div className="sr-font-display" style={{ fontSize: "2.8rem", fontWeight: 900, color: "#c0392b", lineHeight: 1, marginBottom: 8 }}>{s.stat}</div>
-                <div className="sr-font-body" style={{ fontWeight: 700, color: "#fff", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 5 }}>{s.label}</div>
-                <div className="sr-font-body" style={{ fontSize: "0.8rem", color: "rgba(255,255,255,0.5)" }}>{s.sub}</div>
-              </div>
-            ))}
-          </div>
-          <div className="strengths-ops-grid">
-            <div className={`fade-up${isVisible("strengths") ? " visible" : ""}`} style={{ background: "rgba(255,255,255,0.05)", padding: "28px 24px" }}>
-              <div className="sr-font-body" style={{ fontWeight: 700, color: "#c0392b", fontSize: "0.75rem", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 12 }}>Key Strengths</div>
-              <div className="sr-font-display" style={{ fontSize: "1.3rem", fontWeight: 700, color: "#fff", marginBottom: 22 }}>Operational Confidence</div>
-              {[["⚖️", "Transparent operations", "Accurate weighment and clear communication"], ["👷", "Reliable manpower supply", "Supervised deployment for site needs"], ["🚛", "Logistics execution", "Pickup · loading · dispatch coordination"]].map(([ic, t, d]) => (
-                <div key={t} style={{ display: "flex", gap: 12, marginBottom: 18, alignItems: "flex-start" }}>
-                  <span style={{ fontSize: "1.1rem", marginTop: 2 }}>{ic}</span>
-                  <div>
-                    <div className="sr-font-body" style={{ fontWeight: 700, color: "#fff", fontSize: "0.88rem", marginBottom: 3 }}>{t}</div>
-                    <div className="sr-font-body" style={{ fontSize: "0.8rem", color: "rgba(255,255,255,0.5)" }}>{d}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className={`fade-up d2${isVisible("strengths") ? " visible" : ""}`} style={{ background: "#c0392b", padding: "28px 24px" }}>
-              <div className="sr-font-body" style={{ fontWeight: 700, color: "rgba(255,255,255,0.7)", fontSize: "0.75rem", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 12 }}>How We Deliver</div>
-              <div className="sr-font-display" style={{ fontSize: "1.3rem", fontWeight: 700, color: "#fff", marginBottom: 22 }}>Operational Model</div>
-              {[["Site-first execution", "On-ground supervision and daily coordination"], ["Clear scope & coordination", "Site assessment · allocation · reporting"], ["Logistics-backed movement", "Field-ready pickup, loading & dispatch"], ["Transparent pricing", "Process-driven, documented, compliance-aware"]].map(([t, d]) => (
-                <div key={t} style={{ marginBottom: 16, borderBottom: "1px solid rgba(255,255,255,0.15)", paddingBottom: 14 }}>
-                  <div className="sr-font-body" style={{ fontWeight: 700, color: "#fff", fontSize: "0.88rem", marginBottom: 3 }}>{t}</div>
-                  <div className="sr-font-body" style={{ fontSize: "0.8rem", color: "rgba(255,255,255,0.7)" }}>{d}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── CONTACT ── */}
-      <section id="contact" ref={registerRef("contact", "Contact")} className="section-pad" style={{ padding: "100px 24px", background: "#fff" }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-          <div className="contact-grid">
-            <div className={`fade-up${isVisible("contact") ? " visible" : ""}`}>
-              <div className="sr-font-body" style={{ fontSize: "0.78rem", color: "#c0392b", fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", marginBottom: 12 }}>Get In Touch</div>
-              <h2 className="sr-font-display" style={{ fontSize: "clamp(1.8rem, 4vw, 3rem)", fontWeight: 700, color: "#0a1a3a", marginBottom: 4 }}>Contact Us</h2>
-              <div className="divider-red" />
-              <p className="sr-font-body" style={{ fontSize: "0.95rem", color: "#666", lineHeight: 1.8, marginBottom: 32 }}>
-                Reach out for scrap procurement, machinery scrap purchasing, industrial clearance, and bulk scrap handling.
-              </p>
-              <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-                {[
-                  { bg: "#0a1a3a", icon: "👤", label: "Owner / Primary Contact", main: "R. Sheik Oli Badusha", sub: "Tirunelveli, Tamil Nadu" },
-                  { bg: "#c0392b", icon: "📞", label: "Mobile · Call for quotations & pickups", main: "+91 9790401015", href: "tel:+919790401015" },
-                  { bg: "#f7f8fa", border: "2px solid #e8ecf0", icon: "📋", label: "GST · For billing & documentation", main: "33BZEPS6674QZC" },
-                  { bg: "#f7f8fa", border: "2px solid #e8ecf0", icon: "📍", label: "Address", main: "37D, Krishnaperi (opp. Jeyam Mahal Kodeeswaran Nagar)", sub: "Tirunelveli Town – 627006, Tamil Nadu" },
-                ].map((item, i) => (
-                  <div key={i} style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
-                    <div style={{ width: 44, height: 44, background: item.bg, border: item.border, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: "1.1rem" }}>{item.icon}</div>
-                    <div>
-                      <div className="sr-font-body" style={{ fontSize: "0.72rem", color: "#888", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 3 }}>{item.label}</div>
-                      {item.href
-                        ? <a href={item.href} className="sr-font-display" style={{ fontWeight: 700, color: "#c0392b", fontSize: "1.2rem", textDecoration: "none" }}>{item.main}</a>
-                        : <div className="sr-font-display" style={{ fontWeight: 700, color: "#0a1a3a", fontSize: "1rem", lineHeight: 1.4 }}>{item.main}</div>
-                      }
-                      {item.sub && <div className="sr-font-body" style={{ fontSize: "0.82rem", color: "#666", marginTop: 2 }}>{item.sub}</div>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <a className="sr-btn-primary" href="tel:+919790401015" style={{ marginTop: 36, display: "inline-block" }}>📞 Call for Quick Quote</a>
-            </div>
-            <div className={`fade-up d2 contact-cta-hide${isVisible("contact") ? " visible" : ""}`}>
-              <div style={{ background: "#0a1a3a", padding: "40px 32px" }}>
-                <div className="sr-font-display" style={{ fontSize: "1.5rem", fontWeight: 700, color: "#fff", marginBottom: 6 }}>Ready to clear your scrap?</div>
-                <div className="sr-font-body" style={{ fontSize: "1rem", color: "rgba(255,255,255,0.6)", marginBottom: 28 }}>Get a transparent quote within hours.</div>
-                {[
-                  { icon: "🏭", title: "Industrial Scrap Clearance", desc: "Plants, yards, and operational areas" },
-                  { icon: "⚙️", title: "Machinery Scrap Purchase", desc: "Accurate assessment & fast payment" },
-                  { icon: "🏗️", title: "Construction Scrap Handling", desc: "PEMB, metro & flat construction sites" },
-                  { icon: "📦", title: "Bulk Scrap Procurement", desc: "MS, ferrous & non-ferrous materials" },
-                ].map(item => (
-                  <div key={item.title} style={{ display: "flex", gap: 12, padding: "12px 0", borderBottom: "1px solid rgba(255,255,255,0.08)", alignItems: "center" }}>
-                    <span style={{ fontSize: "1.2rem", flexShrink: 0 }}>{item.icon}</span>
-                    <div style={{ flex: 1 }}>
-                      <div className="sr-font-body" style={{ fontWeight: 700, color: "#fff", fontSize: "0.88rem", marginBottom: 2 }}>{item.title}</div>
-                      <div className="sr-font-body" style={{ fontSize: "0.78rem", color: "rgba(255,255,255,0.5)" }}>{item.desc}</div>
-                    </div>
-                    <span style={{ color: "#c0392b" }}>→</span>
-                  </div>
-                ))}
-                <div style={{ marginTop: 28, padding: "14px 18px", background: "rgba(192,57,43,0.15)", border: "1px solid rgba(192,57,43,0.3)" }}>
-                  <div className="sr-font-body" style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.6)", marginBottom: 3, textTransform: "uppercase", letterSpacing: "0.1em" }}>Quick Response Guaranteed</div>
-                  <div className="sr-font-body" style={{ color: "#e87c73", fontWeight: 700, fontSize: "1.05rem" }}>+91 9790401015</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── FOOTER ── */}
-      <footer style={{ background: "#050f1f", padding: "36px 20px" }}>
-        <div className="footer-inner" style={{ maxWidth: 1200, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 20 }}>
+/* ══════════════════════════════════════════════════════════════
+   UPLOAD SCREEN
+══════════════════════════════════════════════════════════════ */
+function UploadScreen({ onData }) {
+  const [dragging, setDragging] = useState(false);
+  const [error, setError] = useState("");
+  const ref = useRef();
+  const handle = file => {
+    if (!file) return;
+    const ext = file.name.split(".").pop().toLowerCase();
+    if (!["xlsx", "xls"].includes(ext)) { setError("Please upload an Excel file (.xlsx or .xls)"); return; }
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: "array" });
+        const rows = parseWorkbook(wb);
+        if (!rows.length) { setError("No invoice data found. Check the file format."); return; }
+        onData(rows, file.name);
+      } catch (err) { setError("Parse failed: " + err.message); }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+  return (
+    <div style={{ minHeight: "100vh", background: C.steel, fontFamily: "'Oswald', sans-serif", display: "flex", flexDirection: "column" }}>
+      {/* NAV */}
+      <nav style={{ borderBottom: `3px solid ${C.rust}`, background: C.steelM, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 40px", height: 64 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{ width: 38, height: 38, background: C.rust, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 900 }}>⚙</div>
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-              <div style={{ width: 34, height: 34, background: "#0a1a3a", border: "1px solid #1a2d5a", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Playfair Display', serif", fontWeight: 900, fontSize: "0.85rem", color: "#c0392b" }}>SR</div>
-              <div className="sr-font-display" style={{ fontWeight: 700, fontSize: "0.95rem", color: "#fff" }}>S.R. ENTERPRISES</div>
-            </div>
-            <div className="sr-font-body" style={{ fontSize: "0.78rem", color: "rgba(255,255,255,0.35)", lineHeight: 1.7 }}>
-              Scrap & Industrial Services · Tirunelveli, Tamil Nadu<br />GST: 33BZEPS6674QZC
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
-            {NAV_LINKS.map(l => (
-              <span key={l} onClick={() => scrollTo(l.toLowerCase())} className="sr-font-body" style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.4)", cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 600, transition: "color 0.2s" }}
-                onMouseEnter={e => e.target.style.color = "#c0392b"}
-                onMouseLeave={e => e.target.style.color = "rgba(255,255,255,0.4)"}
-              >{l}</span>
-            ))}
-          </div>
-          <div className="sr-font-body" style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.25)", textAlign: "right" }}>
-            © 2026 S.R. Enterprises<br />All rights reserved.
+            <div style={{ fontSize: 20, fontWeight: 700, color: C.white, letterSpacing: "0.06em" }}>METALTRACK</div>
+            <div style={{ fontSize: 9, color: C.zinc, letterSpacing: "0.14em", marginTop: -2 }}>SCRAP MANAGEMENT SYSTEM</div>
           </div>
         </div>
-      </footer>
+        <div style={{ display: "flex", gap: 28, fontSize: 12, color: C.chromD, letterSpacing: "0.1em" }}>
+          {["HOME","BRANCHES","REPORTS","PARTIES","SETTINGS"].map(l => (
+            <span key={l} style={{ cursor: "pointer", borderBottom: l === "REPORTS" ? `2px solid ${C.rust}` : "2px solid transparent", paddingBottom: 4, color: l === "REPORTS" ? C.white : C.chromD }}>{l}</span>
+          ))}
+        </div>
+      </nav>
+      {/* HERO */}
+      <div style={{ position: "relative", overflow: "hidden", padding: "80px 60px 70px", background: `linear-gradient(135deg, ${C.steelM} 0%, ${C.steel} 60%, #1a0a0a 100%)` }}>
+        {/* Decorative hex grid */}
+        <svg style={{ position: "absolute", right: 0, top: 0, opacity: 0.04 }} width="600" height="400" viewBox="0 0 600 400">
+          {Array.from({ length: 8 }, (_, row) => Array.from({ length: 10 }, (_, col) => {
+            const x = col * 62 + (row % 2 ? 31 : 0), y = row * 54;
+            return <polygon key={`${row}-${col}`} points={`${x},${y+15} ${x+26},${y} ${x+52},${y+15} ${x+52},${y+41} ${x+26},${y+56} ${x},${y+41}`} fill="none" stroke={C.rust} strokeWidth="1.5" />;
+          }))}
+        </svg>
+        <div style={{ position: "absolute", right: 60, top: "50%", transform: "translateY(-50%)", opacity: 0.06, fontSize: 240, lineHeight: 1 }}>⚙</div>
+        <div style={{ maxWidth: 700, position: "relative" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(192,57,43,0.15)", border: `1px solid rgba(192,57,43,0.4)`, borderRadius: 2, padding: "4px 12px", marginBottom: 22 }}>
+            <span style={{ width: 6, height: 6, background: C.rust, borderRadius: "50%", display: "inline-block" }} />
+            <span style={{ fontSize: 10, color: C.rustL, letterSpacing: "0.14em", fontWeight: 600 }}>OUTSTANDING INVOICE INTELLIGENCE</span>
+          </div>
+          <h1 style={{ fontSize: 54, fontWeight: 700, color: C.white, lineHeight: 1.1, marginBottom: 18, letterSpacing: "0.02em" }}>
+            TRACK. ANALYZE.<br /><span style={{ color: C.rust }}>RECOVER.</span>
+          </h1>
+          <p style={{ fontSize: 14, color: C.chromD, maxWidth: 520, lineHeight: 1.8, marginBottom: 36, fontFamily: "'DM Sans', sans-serif", fontWeight: 300 }}>
+            Comprehensive outstanding invoice analytics for scrap dealers. Branch-wise breakdowns, party ledgers, and financial year comparisons — all from your Excel export.
+          </p>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            {["Branch-wise Analysis","Party Ledger","FY Comparison","Trend Reports"].map((f, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 2, padding: "6px 14px", fontSize: 11, color: C.chromD, letterSpacing: "0.06em" }}>
+                <span style={{ color: C.rust }}>✓</span> {f}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      {/* STATS STRIP */}
+      <div style={{ background: C.rust, padding: "0 60px", display: "flex", gap: 0 }}>
+        {[["MULTI-BRANCH","All locations in one view"],["FY TRACKING","Year-on-year comparison"],["REAL-TIME FILTER","Search & filter instantly"],["EXCEL NATIVE","Direct .xlsx import"]].map(([h, s], i) => (
+          <div key={i} style={{ flex: 1, padding: "14px 20px", borderRight: i < 3 ? "1px solid rgba(0,0,0,0.2)" : "none", display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ fontSize: 18 }}>{["🏗","📅","🔍","📊"][i]}</div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.white, letterSpacing: "0.08em" }}>{h}</div>
+              <div style={{ fontSize: 9, color: "rgba(255,255,255,0.7)", marginTop: 1 }}>{s}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {/* UPLOAD SECTION */}
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "60px 20px", background: C.steelM }}>
+        <div style={{ width: "100%", maxWidth: 640 }}>
+          <div style={{ textAlign: "center", marginBottom: 32 }}>
+            <h2 style={{ fontSize: 28, fontWeight: 700, color: C.white, letterSpacing: "0.05em", marginBottom: 8 }}>UPLOAD YOUR REPORT</h2>
+            <p style={{ fontSize: 12, color: C.zinc, fontFamily: "'DM Sans', sans-serif" }}>Drop your Outstanding Invoice Excel file to generate the full analytics dashboard</p>
+          </div>
+          <div
+            onDragOver={e => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={e => { e.preventDefault(); setDragging(false); handle(e.dataTransfer.files[0]); }}
+            onClick={() => ref.current.click()}
+            style={{
+              border: `2px dashed ${dragging ? C.rust : "rgba(192,57,43,0.4)"}`,
+              borderRadius: 4,
+              padding: "48px 32px",
+              cursor: "pointer",
+              background: dragging ? "rgba(192,57,43,0.06)" : C.iron,
+              transition: "all .2s",
+              textAlign: "center",
+            }}
+          >
+            <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.6 }}>📁</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.white, marginBottom: 8, letterSpacing: "0.04em" }}>DRAG & DROP EXCEL FILE</div>
+            <div style={{ fontSize: 12, color: C.zinc, marginBottom: 24, fontFamily: "'DM Sans', sans-serif" }}>or click to browse your files</div>
+            <div style={{ display: "inline-block", padding: "12px 32px", background: C.rust, borderRadius: 3, fontSize: 12, fontWeight: 700, color: "#fff", letterSpacing: "0.1em", cursor: "pointer" }}>
+              SELECT FILE
+            </div>
+            <div style={{ marginTop: 16, fontSize: 10, color: C.zinc, letterSpacing: "0.06em" }}>SUPPORTS .XLSX · .XLS — OUTSTANDING INVOICE REPORT FORMAT</div>
+          </div>
+          <input ref={ref} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => handle(e.target.files[0])} />
+          {error && <div style={{ color: C.rustL, fontSize: 12, marginTop: 12, background: "rgba(192,57,43,0.1)", border: `1px solid ${C.rust}`, borderRadius: 3, padding: "10px 14px", fontFamily: "'DM Sans', sans-serif" }}>{error}</div>}
+        </div>
+      </div>
+      {/* FOOTER */}
+      <div style={{ background: "#0a0d18", borderTop: `1px solid rgba(255,255,255,0.06)`, padding: "18px 60px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 10, color: C.zinc, letterSpacing: "0.08em" }}>METALTRACK · SCRAP MANAGEMENT SYSTEM</span>
+        <span style={{ fontSize: 10, color: C.zinc }}>Outstanding Invoice Analytics Platform</span>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   NAV ITEMS
+══════════════════════════════════════════════════════════════ */
+const MENU = [
+  { id: "overview", icon: "⚡", label: "Overview" },
+  { id: "branch",   icon: "🏗", label: "Branches" },
+  { id: "party",    icon: "🤝", label: "Parties" },
+  { id: "fy",       icon: "📅", label: "Fin. Year" },
+  { id: "trend",    icon: "📈", label: "Trends" },
+  { id: "list",     icon: "📋", label: "Invoice List" },
+];
+
+/* ══════════════════════════════════════════════════════════════
+   MAIN APP
+══════════════════════════════════════════════════════════════ */
+export default function App() {
+  const [rawData, setRawData]     = useState(null);
+  const [fileName, setFileName]   = useState("");
+  const [activePage, setActivePage] = useState("overview");
+  const agg = useMemo(() => rawData ? aggregate(rawData) : null, [rawData]);
+  const handleData = (rows, name) => { setRawData(rows); setFileName(name); setActivePage("overview"); };
+  if (!rawData) return <UploadScreen onData={handleData} />;
+
+  const pages = {
+    overview: <OverviewPage data={rawData} agg={agg} />,
+    branch:   <BranchPage agg={agg} />,
+    party:    <PartyPage agg={agg} />,
+    fy:       <FYPage agg={agg} />,
+    trend:    <TrendPage agg={agg} />,
+    list:     <ListPage data={rawData} />,
+  };
+  const pgTitle = { overview: "Overview", branch: "Branch Analysis", party: "Party Ledger", fy: "Financial Year", trend: "Trends & Type", list: "Invoice List" };
+
+  return (
+    <div style={{ display: "flex", minHeight: "100vh", background: C.steel, fontFamily: "'DM Sans', sans-serif", color: C.chrome }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: #111827; }
+        ::-webkit-scrollbar-thumb { background: #c0392b; border-radius: 1px; }
+        select option { background: #16213e; }
+        @keyframes slidein { from { opacity:0; transform:translateX(-8px); } to { opacity:1; transform:translateX(0); } }
+        .page-in { animation: slidein 0.2s ease; }
+      `}</style>
+
+      {/* SIDEBAR */}
+      <div style={{ width: 220, minHeight: "100vh", background: C.steelM, borderRight: `1px solid rgba(192,57,43,0.2)`, display: "flex", flexDirection: "column", flexShrink: 0 }}>
+        {/* Brand */}
+        <div style={{ borderBottom: `3px solid ${C.rust}`, padding: "16px 18px 14px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 32, height: 32, background: C.rust, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15 }}>⚙</div>
+            <div>
+              <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 16, fontWeight: 700, color: C.white, letterSpacing: "0.05em" }}>METALTRACK</div>
+              <div style={{ fontSize: 8, color: C.zinc, letterSpacing: "0.12em" }}>OUTSTANDING ANALYTICS</div>
+            </div>
+          </div>
+        </div>
+        {/* File badge */}
+        <div style={{ margin: "12px 12px 0", padding: "8px 12px", background: "rgba(192,57,43,0.08)", border: `1px solid rgba(192,57,43,0.2)`, borderRadius: 3 }}>
+          <div style={{ fontSize: 8, color: C.zinc, letterSpacing: "0.1em", marginBottom: 3 }}>ACTIVE FILE</div>
+          <div style={{ fontSize: 9, color: C.chromD, wordBreak: "break-all", lineHeight: 1.4 }}>{fileName}</div>
+        </div>
+        {/* Nav */}
+        <nav style={{ flex: 1, padding: "14px 10px" }}>
+          <div style={{ fontSize: 8, color: C.zinc, letterSpacing: "0.14em", padding: "0 10px 8px", fontFamily: "'Oswald', sans-serif" }}>NAVIGATION</div>
+          {MENU.map(m => (
+            <button key={m.id} onClick={() => setActivePage(m.id)} style={{
+              display: "flex", alignItems: "center", gap: 10, width: "100%",
+              padding: "10px 12px", borderRadius: 3, marginBottom: 1, border: "none", cursor: "pointer",
+              background: activePage === m.id ? "rgba(192,57,43,0.15)" : "transparent",
+              color: activePage === m.id ? C.white : C.dimText,
+              fontFamily: "'Oswald', sans-serif", fontSize: 12, fontWeight: 500, letterSpacing: "0.06em",
+              borderLeft: activePage === m.id ? `3px solid ${C.rust}` : "3px solid transparent",
+              transition: "all .15s", textAlign: "left",
+            }}>
+              <span style={{ fontSize: 14 }}>{m.icon}</span> {m.label}
+            </button>
+          ))}
+        </nav>
+        {/* Stats */}
+        <div style={{ margin: "0 12px 12px", padding: "12px", background: "rgba(0,0,0,0.2)", borderRadius: 3 }}>
+          <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 8, color: C.zinc, letterSpacing: "0.12em", marginBottom: 8 }}>QUICK STATS</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: C.rust, fontFamily: "'Oswald', sans-serif" }}>{fs(agg.total)}</div>
+          <div style={{ fontSize: 9, color: C.zinc, marginBottom: 8 }}>Total Outstanding</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.chrome, fontFamily: "'Oswald', sans-serif" }}>{rawData.length}</div>
+          <div style={{ fontSize: 9, color: C.zinc }}>Total Invoices</div>
+        </div>
+        {/* Reset */}
+        <div style={{ padding: "12px 12px 16px", borderTop: `1px solid rgba(255,255,255,0.05)` }}>
+          <button onClick={() => { setRawData(null); setFileName(""); }} style={{
+            width: "100%", padding: "9px", borderRadius: 3, border: `1px solid rgba(192,57,43,0.3)`,
+            background: "transparent", color: C.zinc, fontFamily: "'Oswald', sans-serif", fontSize: 11,
+            cursor: "pointer", letterSpacing: "0.08em", transition: "all .15s",
+          }}
+            onMouseEnter={e => { e.target.style.background = "rgba(192,57,43,0.1)"; e.target.style.color = C.rustL; }}
+            onMouseLeave={e => { e.target.style.background = "transparent"; e.target.style.color = C.zinc; }}>
+            ↑ UPLOAD NEW FILE
+          </button>
+        </div>
+      </div>
+
+      {/* MAIN */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        {/* Top bar */}
+        <div style={{
+          borderBottom: `1px solid rgba(255,255,255,0.06)`,
+          borderLeft: `4px solid ${C.rust}`,
+          background: "rgba(22,33,62,0.9)",
+          backdropFilter: "blur(8px)",
+          padding: "0 28px",
+          height: 56,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexShrink: 0,
+        }}>
+          <div>
+            <span style={{ fontFamily: "'Oswald', sans-serif", fontSize: 18, fontWeight: 700, color: C.white, letterSpacing: "0.04em" }}>{pgTitle[activePage].toUpperCase()}</span>
+            <span style={{ fontSize: 10, color: C.zinc, marginLeft: 14, letterSpacing: "0.06em" }}>RO KOCHI · OUTSTANDING INVOICE REPORT</span>
+          </div>
+          <div style={{ display: "flex", gap: 20, fontFamily: "'Oswald', sans-serif", fontSize: 12 }}>
+            <span style={{ color: C.zinc }}><span style={{ color: C.chrome, fontWeight: 700 }}>{rawData.length}</span> RECORDS</span>
+            <span style={{ color: C.zinc }}><span style={{ color: C.rust, fontWeight: 700 }}>{fs(agg.total)}</span> OUTSTANDING</span>
+            <span style={{ background: C.rust, padding: "2px 10px", borderRadius: 2, color: C.white, fontSize: 10 }}>LIVE</span>
+          </div>
+        </div>
+        {/* Page content */}
+        <div className="page-in" key={activePage} style={{ flex: 1, overflowY: "auto" }}>
+          {pages[activePage]}
+        </div>
+      </div>
     </div>
   );
 }
